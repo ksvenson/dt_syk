@@ -1,0 +1,28 @@
+[project]
+name = "dt_syk"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "cython>=3.0.0,<3.1.0",
+    "dynamite",
+    "mpi4py>=4.1.2",
+    "petsc4py>=3.20.5",
+    "slepc4py>=3.20.2",
+]
+
+[tool.uv]
+no-binary-package = ["mpi4py", "petsc4py", "slepc4py", "dynamite"]
+
+[tool.uv.sources]
+petsc4py = { path = "./petsc/src/binding/petsc4py" }
+slepc4py = { path = "./slepc/src/binding/slepc4py" }
+dynamite = { path = "./dynamite" }
+
+[dependency-groups]
+dev = [
+    "cython>=3.0.0,<3.1.0",
+    "setuptools<70",
+    "wheel>=0.47.0",
+]
