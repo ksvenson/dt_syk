@@ -12,9 +12,9 @@ def rp_moment(weights, k):
 
 
 if __name__ == '__main__':
-    d = 2
-    k = 3
-    weights = np.array([0.25, 0.75])
+    d = 2**18
+    k = 2
+    weights = np.array([1/d]*d)
     
     x = rp_moment(weights, k)
     print(x)

@@ -1,1 +1,4 @@
+dynamite/
+petsc/
+slepc/
 .envrc
