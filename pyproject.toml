@@ -3,9 +3,8 @@ name = "dt_syk"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = "==3.9.7"
+requires-python = ">=3.9.7"
 dependencies = [
-    "cython>=3.0.0,<3.1.0",
     "dynamite",
     "mpi4py>=4.1.2",
     "petsc4py>=3.20.5",
@@ -14,15 +13,15 @@ dependencies = [
 
 [tool.uv]
 no-binary-package = ["mpi4py", "petsc4py", "slepc4py", "dynamite"]
+# `setuptools<70` is spcifically needed for some legacy features
+build-constraint-dependencies = ["setuptools<70"]
 
 [tool.uv.sources]
 petsc4py = { path = "./petsc/src/binding/petsc4py" }
 slepc4py = { path = "./slepc/src/binding/slepc4py" }
 dynamite = { path = "./dynamite" }
 
-[dependency-groups]
-dev = [
-    "cython>=3.0.0,<3.1.0",
-    "setuptools<70",
-    "wheel>=0.47.0",
-]
+[tool.uv.extra-build-dependencies]
+# Dependencies when building `petsc4py` and `slepc4py`.
+petsc4py = ["cython>=3.0.0,<3.1.0", "wheel", "numpy"]
+slepc4py = ["cython>=3.0.0,<3.1.0", "wheel", "numpy", "petsc4py"]
