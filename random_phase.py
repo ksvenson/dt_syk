@@ -12,11 +12,19 @@ def rp_moment(weights, k):
 
 
 if __name__ == '__main__':
-    d = 2**18
-    k = 2
-    weights = np.array([1/d]*d)
+    d = 3
+    k = 5
+    weights = np.array([0.25, 0.25, .5])
     
     x = rp_moment(weights, k)
     print(x)
+    print('Trace:')
     print(np.einsum('aa->', x))
-    print(np.trace(x))
+    print('Trace of square:')
+    print(np.einsum('ab,ba->', x, x))
+    
+    trace = 0
+    for idx in np.ndindex((d,)*k):
+        # print(trace)
+        trace += len(set(it.permutations(idx))) * np.prod(weights[list(idx)])**2
+    print(trace)
