@@ -1,30 +1,48 @@
+import dynamite as dt
+import dynamite.states as st
 import numpy as np
+import scipy as sp
 import itertools as it
 
-def rp_moment(weights, k):
-    d = weights.size
+import hamiltonian_factory as hf
+
+import utilities as ut
+
+
+def eig_system(mat):
+    evals, evecs = sp.linalg.eigh(mat)
+    # return in this format to make compatible with caching
+    return {'evals': evals, 'evecs': evecs}
+
+def get_pops(evecs, psi0):
+    overlaps = np.einsum('ab,b->a', evecs.conj().T, psi0)
+    return np.abs(overlaps)**2
+
+def rpe_moment(pops, k):
+    d = 2**d.config.L
     ret = np.zeros((d,)*2*k)
     for idx in np.ndindex((d,)*k):
         perms = set(it.permutations(idx))  # only include unique permtations
         for perm in perms:
-            ret[idx + perm] = np.prod(weights[list(idx)])
+            ret[idx + perm] = np.prod(pops[list(idx)])
     return ret.reshape((d**k, d**k))
+
+def rpe_square_2norm(pops, k):
+    d = 2**dt.config.L
+    ret = 0
+    for idx in np.ndindex((d,)*k):
+        ret += len(set(it.permutations(idx))) * np.prod(pops[list(idx)])**2
+    return ret
 
 
 if __name__ == '__main__':
-    d = 3
-    k = 5
-    weights = np.array([0.25, 0.25, .5])
+    dt.config.L = 6
+    k = 2
     
-    x = rp_moment(weights, k)
-    print(x)
-    print('Trace:')
-    print(np.einsum('aa->', x))
-    print('Trace of square:')
-    print(np.einsum('ab,ba->', x, x))
+    H = hf.MFIM().to_numpy(sparse=False)
+    psi0 = st.State(0).to_numpy()
+
+    eigs = eig_system(H)
+    pops = get_pops(eigs['evecs'], psi0)
+    np.save('./pops.npy', pops)
     
-    trace = 0
-    for idx in np.ndindex((d,)*k):
-        # print(trace)
-        trace += len(set(it.permutations(idx))) * np.prod(weights[list(idx)])**2
-    print(trace)
