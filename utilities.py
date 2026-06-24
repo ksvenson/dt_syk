@@ -6,11 +6,15 @@ from typing import Literal
 cache_type = Literal['npy', 'npz', 'pkl']
 
 # Global figure settings
-LEGEND_OPTIONS = {'bbox_to_anchor': (0.9, 0.5), 'loc': 'center left'}
+# LEGEND_OPTIONS = {'bbox_to_anchor': (0.9, 0.5), 'loc': 'center left'}
+LEGEND_OPTIONS = {}
 FIG_SAVE_OPTIONS = {'bbox_inches': 'tight'}
 
 # directory to save all function caches
-CACHE_DIR = './cache/'
+CACHE_DIR = './computation_cache/'
+
+# directory to save all figures
+FIG_DIR = './figs'
 
 
 def cache(method: cache_type, base):
