@@ -1,4 +1,5 @@
 dynamite/
 petsc/
 slepc/
+__pycache__/
 .envrc

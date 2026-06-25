@@ -2,7 +2,7 @@ import dynamite as dt
 import dynamite.operators as op
 
 
-def MFIM(hx=0.9045, hz=0.8090, J=1, boundary='closed'):
+def MFIM(hx=0.9045, hz=0.8090, J=1, boundary='open'):
     """
     Mixed field Ising model.
     L should be set with `dynamite.config.L`
