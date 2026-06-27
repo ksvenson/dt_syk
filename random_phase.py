@@ -36,7 +36,7 @@ def rpe_square_2norm(pops, k):
 
 
 if __name__ == '__main__':
-    dm.config.L = 4
+    dm.config.L = 6
     k = 2
     
     H = hf.MFIM().to_numpy(sparse=False)
