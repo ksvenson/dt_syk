@@ -2,6 +2,8 @@ import os
 import numpy as np
 import pickle
 from typing import Literal
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
 
 cache_type = Literal['npy', 'npz', 'pkl']
 
@@ -19,7 +21,7 @@ FIG_DIR = './figs'
 
 def cache(method: cache_type, base):
     """
-    Decorator constructor to cache the output of functions.
+    Decorator to cache the output of functions.
 
     `cache_type`: Either:
         'npy' for saving a single numpy array
@@ -34,7 +36,11 @@ def cache(method: cache_type, base):
                 if kwargs['note'] is not None:
                     fname += '_' + kwargs['note']
             fname += f'.{method}'
-            if os.path.isfile(fname):
+            
+            # Let rank 0 check file, send the result to other ranks
+            hit = comm.bcast(os.path.isfile(fname) if comm.rank == 0 else None, root=0)
+
+            if hit:
                 if method == 'npy':
                     data = np.load(fname)
                 elif method == 'npz':
@@ -44,13 +50,16 @@ def cache(method: cache_type, base):
                         data = pickle.load(file)
             else:
                 data = func(*args, **kwargs)
-                if method == 'npy':
-                    np.save(fname, data)
-                elif method == 'npz':
-                    np.savez(fname, **data)
-                elif method == 'pkl':
-                    with open(fname, 'wb') as file:
-                        pickle.dump(data, file)
+                if comm.rank == 0:
+                    os.makedirs(CACHE_DIR, exist_ok=True)
+                    if method == 'npy':
+                        np.save(fname, data)
+                    elif method == 'npz':
+                        np.savez(fname, **data)
+                    elif method == 'pkl':
+                        with open(fname, 'wb') as file:
+                            pickle.dump(data, file)
+                comm.Barrier()  # all ranks wait for file to be written
             return data
         return inner
     return wrap

@@ -5,18 +5,10 @@ import scipy as sp
 import itertools as it
 
 import hamiltonian_factory as hf
+import linalg as la
 
 import utilities as ut
 
-
-def eig_system(mat):
-    evals, evecs = sp.linalg.eigh(mat)
-    # return in this format to make compatible with caching
-    return {'evals': evals, 'evecs': evecs}
-
-def get_pops(evecs, psi0):
-    pops = np.einsum('ab,b->a', evecs.conj().T, psi0)
-    return np.abs(pops)**2
 
 def rpe_moment(pops, k):
     d = 2**dm.config.L
@@ -42,9 +34,8 @@ if __name__ == '__main__':
     H = hf.MFIM().to_numpy(sparse=False)
     psi0 = st.State(0).to_numpy()
 
-    eigs = eig_system(H)
-    pops = get_pops(eigs['evecs'], psi0)
-    np.save('./pops.npy', pops)
+    eigs = la.eig_system(H)
+    pops = la.get_pops(eigs['evecs'], psi0)
 
     occ = np.sort(eigs['evals'][pops > 10e-9])
     evals = np.sort(eigs['evals'])

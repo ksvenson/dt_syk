@@ -3,3 +3,6 @@ petsc/
 slepc/
 __pycache__/
 .envrc
+computation_cache/
+*.svg
+.direnv/
