@@ -2,6 +2,7 @@ import dynamite as dm
 import dynamite.states as st
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 import linalg as la
 import hamiltonian_factory as hf
@@ -33,6 +34,7 @@ def temp_square_2norm_sampled(overlaps, k_series):
     return ret
 
 def temp_square_2norm_exact(evals, pops, k_series, tau_series):
+    # FIXME: this takes too long; find a way to make it faster
     ret = np.zeros((tau_series.size, k_series.size))
     for i, k in enumerate(k_series):
         for n in np.ndindex((2**dm.config.L,) * k):
@@ -81,5 +83,5 @@ if __name__ == '__main__':
     
     ax.set(xlabel=r'$\tau$', ylabel=ylabel, xscale='log', yscale='log')
     ax.legend(**ut.LEGEND_OPTIONS)
-    fig.savefig('blah.svg', **ut.FIG_SAVE_OPTIONS)
+    fig.savefig(os.path.join(ut.FIG_DIR, f'MFIM_L{dm.config.L}_dt{log_dt}_ns{log_ns}.svg'), **ut.FIG_SAVE_OPTIONS)
 

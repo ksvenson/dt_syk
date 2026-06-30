@@ -1,5 +1,7 @@
-Instructions for installing dynamite:
-1. Follow instructions here: https://dynamite.readthedocs.io/en/latest/install.html, up
+Instructions for installing dynamite locally
+(Not guaranteed to work, some machines may have their own quirks)
+
+2. Follow instructions here: https://dynamite.readthedocs.io/en/latest/install.html, up
    until, but *not* including, the "Building Dynamite" section.
 
    Note: while building `petsc`, MUMPS may throw an exception. The fix is to manually
@@ -11,7 +13,7 @@ Instructions for installing dynamite:
    `<project_dir>/petsc/config/BuildSystem/config/packages/MUMPS.py`
    after line 171. `<project_dir>/petsc/configure.log` gives some extra info.
 
-2. double-check that environment variables are set:
+3. double-check that environment variables are set:
    ```
    export PETSC_DIR="<project_dir>/petsc"
    export PETSC_ARCH="complex-opt"
@@ -25,4 +27,4 @@ Instructions for installing dynamite:
    export SLEPC_DIR="$PROJECT_ROOT/slepc"
    ```
 
-3. Run `uv sync`
+4. Run `uv sync`
