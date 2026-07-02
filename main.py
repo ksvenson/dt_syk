@@ -4,6 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
+import itertools as it
+import math
+
 import linalg as la
 import hamiltonian_factory as hf
 import random_phase as rp
@@ -36,15 +39,22 @@ def temp_square_2norm_sampled(overlaps, k_series):
 def temp_square_2norm_exact(evals, pops, k_series, tau_series):
     # FIXME: this takes too long; find a way to make it faster
     ret = np.zeros((tau_series.size, k_series.size))
+    d = evals.size
     for i, k in enumerate(k_series):
-        for n in np.ndindex((2**dm.config.L,) * k):
-            print(n)
-            for m in np.ndindex((2**dm.config.L,) * k):
-                ret[:,i] += np.sinc(np.sum(evals[list(n)] - evals[list(m)]) * tau_series / 2 / np.pi)**2 * np.prod(pops[list(n)] * pops[list(m)])
+        unique_idxes = np.array(list(it.combinations_with_replacement(range(d), k)))
+        2
+        print(unique_idxes.size)
+        print(math.comb(d+k-1, k))
+    quit()
+
+        # for n in np.ndindex((d,) * k):
+        #     print(n)
+        #     for m in np.ndindex((d,) * k):
+        #         ret[:,i] += np.sinc(np.sum(evals[list(n)] - evals[list(m)]) * tau_series / 2 / np.pi)**2 * np.prod(pops[list(n)] * pops[list(m)])
     return ret
 
 if __name__ == '__main__':
-    dm.config.L = 6
+    dm.config.L = 4
     dm.config.initialize(['-mfn_ncv', '80'])
     hx = (np.sqrt(5) + 5) / 8
     hz = (np.sqrt(5) + 1) / 4
@@ -71,7 +81,7 @@ if __name__ == '__main__':
     print('Computing temp_norm_squared_sampled')
     temp_norm_sampled = temp_square_2norm_sampled(overlaps, k_series)
     print('Computing temp_norm_squared_exact')
-    # temp_norm_exact = temp_square_2norm_exact(eigs['evals'], pops, k_series, tau_series_exact)
+    temp_norm_exact = temp_square_2norm_exact(eigs['evals'], pops, k_series, tau_series_exact)
 
     for i, k in enumerate(k_series):
         rpe_norm = rp.rpe_square_2norm(pops, k)
