@@ -1,4 +1,5 @@
 import dynamite as dm
+import dynamite.operators as op
 import dynamite.states as st
 import numpy as np
 import matplotlib.pyplot as plt
@@ -36,62 +37,84 @@ def temp_square_2norm_sampled(overlaps, k_series):
     ret[1:] = (1 + 2*t1) / (helper+1) - 2*t2 / (helper+1)**2
     return ret
 
-def temp_square_2norm_exact(evals, pops, k_series, tau_series):
-    # FIXME: this takes too long; find a way to make it faster
+@ut.cache('npy', 'temp_square_2norm_exact')
+def temp_square_2norm_exact(evals, pops, k_series, tau_series, chunk=256, note=None):
     ret = np.zeros((tau_series.size, k_series.size))
     d = evals.size
-    for i, k in enumerate(k_series):
-        unique_idxes = np.array(list(it.combinations_with_replacement(range(d), k)))
-        2
-        print(unique_idxes.size)
-        print(math.comb(d+k-1, k))
-    quit()
-
-        # for n in np.ndindex((d,) * k):
-        #     print(n)
-        #     for m in np.ndindex((d,) * k):
-        #         ret[:,i] += np.sinc(np.sum(evals[list(n)] - evals[list(m)]) * tau_series / 2 / np.pi)**2 * np.prod(pops[list(n)] * pops[list(m)])
+    for k_idx, k in enumerate(k_series):
+        print(f'k: {k}')
+        # Let D_k be the dimension of the symmetric subspace
+        multi_sets, mult = np.unique(np.sort(list(np.ndindex((d,)*k)), axis=-1), axis=0, return_counts=True)
+        eng_sum = np.sum(evals[multi_sets], axis=-1)                                                      # (D_k,)
+        pop_prod = np.prod(pops[multi_sets], axis=-1)                                                     # (D_k,)
+        for beta_idx in np.arange(0, multi_sets.shape[0], chunk):
+            print(f'{beta_idx} / {multi_sets.shape[0]}')
+            term = np.subtract.outer(eng_sum, eng_sum[beta_idx : beta_idx + chunk])                       # (D_k, chunk)
+            term = np.sinc(np.multiply.outer(term, tau_series) / 2 / np.pi)**2                            # (D_k, chunk,tau)
+            term *= np.multiply.outer(pop_prod, pop_prod[beta_idx : beta_idx + chunk])[:, :, np.newaxis]  # (D_k, chunk, tau)
+            term *= np.multiply.outer(mult, mult[beta_idx : beta_idx + chunk])[:, :, np.newaxis]          # (D_k, chunk, tau)
+            ret[:, k_idx] += np.sum(term, axis=(0, 1))
     return ret
 
+
 if __name__ == '__main__':
-    dm.config.L = 4
+    # dynamite configuration
     dm.config.initialize(['-mfn_ncv', '80'])
+    dm.config.L = 6
+    
+    # Hamiltonian
     hx = (np.sqrt(5) + 5) / 8
     hz = (np.sqrt(5) + 1) / 4
-    
-    k_series = 1 + np.arange(3)
-
     H = hf.MFIM(hx=hx, hz=hz)
-    psi0 = st.State(0)
+
+    # Initial State
+    psi0_str = 'mark37'
+    psi0 = None
+    if psi0_str == '0':
+        psi0 = st.State(0)
+    elif psi0_str == 'mark37':
+        theta = 0.6
+        psi0 = dm.computations.evolve(op.index_sum(op.sigmaz()), st.State(0), -theta / 2)
+    else:
+        print('Unsupported initial state')
+        quit()
+
+    base_note = f'MFIM_L{dm.config.L}_hx{round(hx, 4)}_hz{round(hz, 4)}_psi0{psi0_str}'
     
-    log_ns = 6
-    log_dt = -2
+    # Sampling parameters
+    k_series = 1 + np.arange(3)
+    log_ns = 5
+    log_dt = -1
     num_samples = 10**log_ns
     dt = 10**log_dt
+    exact_num_samples = 20
+    tmax = 10**(log_ns + log_dt)
     tau_series_sampled = dt * np.arange(num_samples)
-    tau_series_exact = np.logspace(1, num_samples, num=10)
+    tau_series_exact = np.logspace(0, log_ns + log_dt, num=exact_num_samples)
     
-    print('Computing overlaps')
-    overlaps = time_evolved_overlaps(H, psi0, dt, num_samples, note=f'MFIM_L{dm.config.L}_dt{log_dt}_ns{log_ns}')
+    # Computations
     print('Computing eigs')
-    eigs = la.eig_system(H.to_numpy(sparse=False), note=f'MFIM_L{dm.config.L}_hx{round(hx, 4)}_hz{round(hz, 4)}')
+    eigs = la.eig_system(H.to_numpy(sparse=False), note=base_note)
     pops = la.get_pops(eigs['evecs'], psi0.to_numpy())
+    print('Computing overlaps')
+    overlaps = time_evolved_overlaps(H, psi0, dt, num_samples, note=f'{base_note}_dt{log_dt}_ns{log_ns}')
     
-    fig, ax = plt.subplots()
     print('Computing temp_norm_squared_sampled')
     temp_norm_sampled = temp_square_2norm_sampled(overlaps, k_series)
     print('Computing temp_norm_squared_exact')
-    temp_norm_exact = temp_square_2norm_exact(eigs['evals'], pops, k_series, tau_series_exact)
-
+    temp_norm_exact = temp_square_2norm_exact(eigs['evals'], pops, k_series, tau_series_exact, note=f'{base_note}_tmax{log_ns+log_dt}_ns{exact_num_samples}')
+    
+    # Plotting
+    fig, ax = plt.subplots()
     for i, k in enumerate(k_series):
         rpe_norm = rp.rpe_square_2norm(pops, k)
         diff_sampled = np.sqrt(temp_norm_sampled[:, i] - rpe_norm)
-        # diff_exact = np.sqrt(temp_norm_exact[:, i] - rpe_norm)
-        ax.plot(tau_series_sampled, diff_sampled, label=rf'$k={k}$, sampled')
-        # ax.plot(tau_series_exact, diff_exact, label=rf'$k={k}$, exact')
+        diff_exact = np.sqrt(temp_norm_exact[:, i] - rpe_norm)
+        ax.plot(tau_series_sampled, diff_sampled, label=rf'$k={k}$, sampled', color=f'C{i}')
+        ax.plot(tau_series_exact, diff_exact, label=rf'$k={k}$, exact', color=f'black', linestyle='dashed')
     ylabel = r'$||\rho_\text{Temp.}^{(k)} - \rho_\text{RPE.}^{(k)}||_2$'
     
     ax.set(xlabel=r'$\tau$', ylabel=ylabel, xscale='log', yscale='log')
     ax.legend(**ut.LEGEND_OPTIONS)
-    fig.savefig(os.path.join(ut.FIG_DIR, f'MFIM_L{dm.config.L}_dt{log_dt}_ns{log_ns}.svg'), **ut.FIG_SAVE_OPTIONS)
+    fig.savefig(os.path.join(ut.FIG_DIR, f'{base_note}_dt{log_dt}_ns{log_ns}.svg'), **ut.FIG_SAVE_OPTIONS)
 
