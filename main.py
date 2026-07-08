@@ -38,22 +38,38 @@ def temp_square_2norm_sampled(overlaps, k_series):
     return ret
 
 @ut.cache('npy', 'temp_square_2norm_exact')
-def temp_square_2norm_exact(evals, pops, k_series, tau_series, chunk=256, note=None):
+def temp_square_2norm_exact(evals, pops, k_series, tau_series, chunk=2**10, note=None):
     ret = np.zeros((tau_series.size, k_series.size))
     d = evals.size
     for k_idx, k in enumerate(k_series):
         print(f'k: {k}')
         # Let D_k be the dimension of the symmetric subspace
-        multi_sets, mult = np.unique(np.sort(list(np.ndindex((d,)*k)), axis=-1), axis=0, return_counts=True)
-        eng_sum = np.sum(evals[multi_sets], axis=-1)                                                      # (D_k,)
-        pop_prod = np.prod(pops[multi_sets], axis=-1)                                                     # (D_k,)
-        for beta_idx in np.arange(0, multi_sets.shape[0], chunk):
-            print(f'{beta_idx} / {multi_sets.shape[0]}')
-            term = np.subtract.outer(eng_sum, eng_sum[beta_idx : beta_idx + chunk])                       # (D_k, chunk)
-            term = np.sinc(np.multiply.outer(term, tau_series) / 2 / np.pi)**2                            # (D_k, chunk,tau)
-            term *= np.multiply.outer(pop_prod, pop_prod[beta_idx : beta_idx + chunk])[:, :, np.newaxis]  # (D_k, chunk, tau)
-            term *= np.multiply.outer(mult, mult[beta_idx : beta_idx + chunk])[:, :, np.newaxis]          # (D_k, chunk, tau)
-            ret[:, k_idx] += np.sum(term, axis=(0, 1))
+        multi_sets, mult = np.unique(np.sort(list(np.ndindex((d,)*k)), axis=-1), axis=0, return_counts=True)  # (D_k, k), (D_k,)
+        eng_sum = np.sum(evals[multi_sets], axis=-1)                                                          # (D_k,)
+        pop_prod = mult * np.prod(pops[multi_sets], axis=-1)                                                  # (D_k,)
+        for alpha_idx in np.arange(0, multi_sets.shape[0], chunk):
+            alpha_eng_sum = eng_sum[alpha_idx : alpha_idx + chunk]
+            alpha_pop_prod = pop_prod[alpha_idx : alpha_idx + chunk]
+            for beta_idx in np.arange(alpha_idx, multi_sets.shape[0], chunk):  # sum over upper triangle of (alpha, beta)
+                beta_eng_sum = eng_sum[beta_idx : beta_idx + chunk]          # (chunk,)
+                beta_pop_prod = pop_prod[beta_idx : beta_idx + chunk]        # (chunk,)
+
+                print(f'({alpha_idx}, {beta_idx}) / {multi_sets.shape[0]}')
+                sinc_arg = np.subtract.outer(alpha_eng_sum, beta_eng_sum)
+                coeff = np.multiply.outer(alpha_pop_prod, beta_pop_prod)
+                if beta_idx == alpha_idx:
+                    mask = np.triu_indices(alpha_eng_sum.shape[0], k=1)
+                    sinc_arg = sinc_arg[mask]
+                    coeff = coeff[mask]
+                else:
+                    sinc_arg = sinc_arg.flatten()
+                    coeff = coeff.flatten()
+                sinc_arg = np.multiply.outer(sinc_arg, tau_series / 2)
+                ret[:, k_idx] += 2 * np.sum((np.sin(sinc_arg) / sinc_arg)**2 * coeff[:, np.newaxis], axis=0)
+                # term = np.subtract.outer(eng_sum, eng_sum[beta_idx : beta_idx + chunk])                           # (D_k, chunk)
+                # term = np.sinc(np.multiply.outer(term, tau_series) / 2 / np.pi)**2                                # (D_k, chunk,tau)
+                # term *= np.multiply.outer(pop_prod, pop_prod[beta_idx : beta_idx + chunk])[:, :, np.newaxis]      # (D_k, chunk, tau)
+                # ret[:, k_idx] += np.sum(term, axis=(0, 1))
     return ret
 
 
@@ -79,11 +95,11 @@ if __name__ == '__main__':
         print('Unsupported initial state')
         quit()
 
-    base_note = f'MFIM_L{dm.config.L}_hx{round(hx, 4)}_hz{round(hz, 4)}_psi0{psi0_str}'
+    base_note = f'MFIM_L{dm.config.L}_hx{hx:.4f}_hz{hz:.4f}_psi0{psi0_str}'
     
     # Sampling parameters
     k_series = 1 + np.arange(3)
-    log_ns = 5
+    log_ns = 7
     log_dt = -1
     num_samples = 10**log_ns
     dt = 10**log_dt
@@ -109,7 +125,7 @@ if __name__ == '__main__':
     for i, k in enumerate(k_series):
         rpe_norm = rp.rpe_square_2norm(pops, k)
         diff_sampled = np.sqrt(temp_norm_sampled[:, i] - rpe_norm)
-        diff_exact = np.sqrt(temp_norm_exact[:, i] - rpe_norm)
+        diff_exact = np.sqrt(temp_norm_exact[:, i])  # we already subtracted the RPE term in this computation
         ax.plot(tau_series_sampled, diff_sampled, label=rf'$k={k}$, sampled', color=f'C{i}')
         ax.plot(tau_series_exact, diff_exact, label=rf'$k={k}$, exact', color=f'black', linestyle='dashed')
     ylabel = r'$||\rho_\text{Temp.}^{(k)} - \rho_\text{RPE.}^{(k)}||_2$'
