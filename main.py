@@ -17,6 +17,20 @@ import utilities as ut
 
 @ut.cache('npy', 'time_evolved_overlaps')
 def time_evolved_overlaps(H, psi0, dt, num_samples, note=None):
+    """
+    Computes < psi0 | psi(t) > in `dt` increments.
+    The first element of the returned array is < psi0 | psi_0 > = 1.
+    The last element of the returned array is < psi0 | psi(dt * num_samples) >.
+
+    Parameters:
+    `H` (dynamite operator): the hamiltonian
+    `psi0` (dynamite state): initial state to evolve
+    `dt` (float): time step between each evolved state.
+    `num_samples` (int): number of overlaps to compute.
+
+    Returns:
+    Array of length `num_samples`.
+    """
     overlaps = np.full(num_samples, np.nan, dtype='complex')
     psit = psi0.copy()
     overlaps[0] = 1
@@ -27,6 +41,19 @@ def time_evolved_overlaps(H, psi0, dt, num_samples, note=None):
     return overlaps
 
 def temp_square_2norm_sampled(overlaps, k_series):
+    """
+    Computes the square of the kth moment of the finite-time temporal ensemble,
+    $(\rho_{Temp.}^{(k)}(\tau))^2$, by directly sampling the ensemble.
+
+    Parameters:
+    `overlaps` (1d array): output of `time_evolved_overlaps`. The first element must be 1.
+    `k_series` (1d array): moments of the ensemble to compute.
+
+    Returns:
+    Array of shape (`overlaps.size`, `k_series.size`).
+    The first axis is the tau axis.
+    Tau can be constructed with `dt * np.arange(overlaps.size)`.
+    """
     assert overlaps[0] == 1
     ret = np.full((overlaps.size, k_series.size), np.nan)
     ret[0] = 1
@@ -39,6 +66,19 @@ def temp_square_2norm_sampled(overlaps, k_series):
 
 @ut.cache('npy', 'temp_square_2norm_exact')
 def temp_square_2norm_exact(evals, pops, k_series, tau_series, chunk=2**10, note=None):
+    """
+    Computes the difference between the kth moments of the squares of finite-time
+    temporal ensemble and random phase ensemble:
+    $(\rho_{Temp.}^{(k)}(\tau))^2 - (\rho_{RP.}^{(k)})^2$.
+    Instead of sampling the ensembles, this method uses the closed-form expression (eq
+    34) in Mark et al.: https://arxiv.org/pdf/2403.11970
+
+    Parameters:
+    `evals` (1d array): all eigenvalues of the Hamiltonian.
+    `pops` (1d array): eigenspace populations of the initial state: |< psi0 | E_n >|^2
+    `k_series` (1d array): moments of the ensemble to compute
+    `tau_series` (1d array): times at which to comptue the ensemble.
+    """
     ret = np.zeros((tau_series.size, k_series.size))
     d = evals.size
     for k_idx, k in enumerate(k_series):
@@ -62,14 +102,10 @@ def temp_square_2norm_exact(evals, pops, k_series, tau_series, chunk=2**10, note
                     sinc_arg = sinc_arg[mask]
                     coeff = coeff[mask]
                 else:
-                    sinc_arg = sinc_arg.flatten()
-                    coeff = coeff.flatten()
+                    sinc_arg = sinc_arg.ravel()
+                    coeff = coeff.ravel()
                 sinc_arg = np.multiply.outer(sinc_arg, tau_series / 2)
                 ret[:, k_idx] += 2 * np.sum((np.sin(sinc_arg) / sinc_arg)**2 * coeff[:, np.newaxis], axis=0)
-                # term = np.subtract.outer(eng_sum, eng_sum[beta_idx : beta_idx + chunk])                           # (D_k, chunk)
-                # term = np.sinc(np.multiply.outer(term, tau_series) / 2 / np.pi)**2                                # (D_k, chunk,tau)
-                # term *= np.multiply.outer(pop_prod, pop_prod[beta_idx : beta_idx + chunk])[:, :, np.newaxis]      # (D_k, chunk, tau)
-                # ret[:, k_idx] += np.sum(term, axis=(0, 1))
     return ret
 
 
@@ -128,7 +164,7 @@ if __name__ == '__main__':
         diff_exact = np.sqrt(temp_norm_exact[:, i])  # we already subtracted the RPE term in this computation
         ax.plot(tau_series_sampled, diff_sampled, label=rf'$k={k}$, sampled', color=f'C{i}')
         ax.plot(tau_series_exact, diff_exact, label=rf'$k={k}$, exact', color=f'black', linestyle='dashed')
-    ylabel = r'$||\rho_\text{Temp.}^{(k)} - \rho_\text{RPE.}^{(k)}||_2$'
+    ylabel = r'$||\rho_\text{Temp.}^{(k)} - \rho_\text{RP.}^{(k)}||_2$'
     
     ax.set(xlabel=r'$\tau$', ylabel=ylabel, xscale='log', yscale='log')
     ax.legend(**ut.LEGEND_OPTIONS)
