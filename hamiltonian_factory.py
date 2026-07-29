@@ -1,4 +1,3 @@
-import dynamite as dt
 import dynamite.operators as op
 
 

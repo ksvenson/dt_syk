@@ -2,8 +2,6 @@ import os
 import numpy as np
 import pickle
 from typing import Literal
-from mpi4py import MPI
-comm = MPI.COMM_WORLD
 
 cache_type = Literal['npy', 'npz', 'pkl']
 
@@ -36,9 +34,15 @@ def cache(method: cache_type, base):
                 if kwargs['note'] is not None:
                     fname += '_' + kwargs['note']
             fname += f'.{method}'
+
+            comm = kwargs.get('comm', None)
             
-            # Let rank 0 check file, send the result to other ranks
-            hit = comm.bcast(os.path.isfile(fname) if comm.rank == 0 else None, root=0)
+            hit = False
+            if comm:
+                # Let rank 0 check file, send the result to other ranks
+                hit = comm.bcast(os.path.isfile(fname) if comm.rank == 0 else None, root=0)
+            else:
+                hit = os.path.isfile(fname)
 
             if hit:
                 if method == 'npy':
@@ -50,7 +54,7 @@ def cache(method: cache_type, base):
                         data = pickle.load(file)
             else:
                 data = func(*args, **kwargs)
-                if comm.rank == 0:
+                if (comm and comm.rank == 0) or (comm is None):
                     os.makedirs(CACHE_DIR, exist_ok=True)
                     if method == 'npy':
                         np.save(fname, data)
@@ -59,7 +63,9 @@ def cache(method: cache_type, base):
                     elif method == 'pkl':
                         with open(fname, 'wb') as file:
                             pickle.dump(data, file)
-                comm.Barrier()  # all ranks wait for file to be written
+                if comm:
+                    comm.Barrier()  # all ranks wait for file to be written
             return data
         return inner
     return wrap
+
