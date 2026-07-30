@@ -55,7 +55,7 @@ def temp_square_2norm_sampled(overlaps, k_series):
     return ret
 
 @ut.cache('npy', 'temp_square_2norm_exact')
-def temp_square_2norm_exact(evals, pops, k, tau_series, *, comm, chunk=2**8, note=None):
+def temp_square_2norm_exact(evals, pops, k, tau_series, comm=None, chunk=2**8, verbose=True, note=None):
     """
     Computes the difference between the kth moments of the squares of finite-time
     temporal ensemble and random phase ensemble:
@@ -77,15 +77,19 @@ def temp_square_2norm_exact(evals, pops, k, tau_series, *, comm, chunk=2**8, not
     multi_sets, mult = np.unique(np.sort(list(np.ndindex((d,)*k)), axis=-1), axis=0, return_counts=True)  # (D_k, k), (D_k,)
     eng_sum = np.sum(evals[multi_sets], axis=-1)                                                          # (D_k,)
     pop_prod = mult * np.prod(pops[multi_sets], axis=-1)                                                  # (D_k,)
-    rank = comm.Get_rank()
-    size = comm.Get_size()
-    count = 0
+    rank = 0
+    size = 1
+    if comm:
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+    count = -1
     for a in np.arange(0, multi_sets.shape[0], chunk):
         for b in np.arange(a, multi_sets.shape[0], chunk):  # sum over upper triangle of (a, b)
             count += 1
             if count % size != rank:
                 continue
-            print(f'rank {rank}/{size}: ({a}, {b}) / {multi_sets.shape[0]}')
+            if verbose:
+                print(f'rank {rank}/{size}: ({a}, {b}) / {multi_sets.shape[0]}')
             sinc_arg = np.subtract.outer(  # (chunk, chunk)
                 eng_sum[a : a + chunk],
                 eng_sum[b : b + chunk]
@@ -102,8 +106,11 @@ def temp_square_2norm_exact(evals, pops, k, tau_series, *, comm, chunk=2**8, not
                 sinc_arg = sinc_arg.ravel()
                 coeff = coeff.ravel()
             sinc_arg = np.multiply.outer(sinc_arg, tau_series / 2)  # (chunk**2, tau_series)
-            partial += 2 * np.sum((np.sin(sinc_arg) / sinc_arg)**2 * coeff[:, np.newaxis], axis=0)  # (tau_series,)
-    ret = np.empty_like(partial)
-    comm.Allreduce(partial, ret)
-    return ret
+            partial += 2 * np.sum(np.sinc(sinc_arg / np.pi)**2 * coeff[:, np.newaxis], axis=0)  # (tau_series,)
+    if comm:
+        ret = np.empty_like(partial)
+        comm.Allreduce(partial, ret)
+        return ret
+    else:
+        return partial
 

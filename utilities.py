@@ -53,6 +53,8 @@ def cache(method: cache_type, base):
                     with open(fname, 'rb') as file:
                         data = pickle.load(file)
             else:
+                if kwargs.get('require_cache', False):
+                    raise Exception(f'Cache required, but could not find file: {fname}.')
                 data = func(*args, **kwargs)
                 if (comm and comm.rank == 0) or (comm is None):
                     os.makedirs(CACHE_DIR, exist_ok=True)
