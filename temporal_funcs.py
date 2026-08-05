@@ -1,5 +1,6 @@
 import numpy as np
 import dynamite.computations as comp
+import itertools as it
 
 import utilities as ut
 
@@ -113,4 +114,35 @@ def temp_square_2norm_exact(evals, pops, k, tau_series, comm=None, chunk=2**8, v
         return ret
     else:
         return partial
+
+# @ut.cache('npz', 'eng_diffs')
+def eng_diffs(evals, k, num_bins=100, chunk=1024, cutoff=None, note=None):
+    combs = list(it.combinations(np.arange(evals.size), k))
+    eng_sum = np.sum(evals[combs], axis=-1)
+    min_diff = np.max(evals)
+    
+    if cutoff:
+        bin_edges = np.linspace(0, cutoff, num=num_bins+1)
+    else:
+        bin_edges = np.linspace(0, k * (np.max(evals) - np.min(evals)), num=num_bins+1)
+
+    counts = np.zeros(num_bins, dtype=np.int32)
+    for i in range(0, len(combs), chunk):
+        for j in range(i, len(combs), chunk):
+            print(f'({i},{j}) / {len(combs)}')
+            diffs = np.abs(np.subtract.outer(eng_sum[i:i+chunk], eng_sum[j:j+chunk]))  # (chunk, chunk)
+            if i == j:
+                diffs = diffs[np.triu_indices(diffs.shape[0], k=1)]
+            else:
+                diffs = diffs.ravel()
+            counts += np.histogram(diffs, bins=bin_edges)[0]
+
+            new_min = np.min(diffs)
+            if new_min < min_diff:
+                min_diff = new_min
+    # print(f'sum: {np.sum(counts)}')
+    # print(f'len: {(len(combs)**2 - len(combs)) // 2}')
+    # assert np.sum(counts) == ((len(combs)**2 - len(combs)) // 2)
+    print(f'k={k} min diff: {min_diff}')
+    return {'counts': counts, 'bin_edges': bin_edges}
 
