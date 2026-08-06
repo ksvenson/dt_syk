@@ -74,7 +74,9 @@ if __name__ == '__main__':
         eigs = la.eig_system(H_np, note=H_str+'_'+H_note(task_num))
         pops = la.get_pops(eigs['evecs'], psi0_np)
         
+
         for k_idx, k in enumerate(k_series):
+            tools.mpi_print(f'k={k}: Computing temp_norm_squared_exact')
             local_tr[i, k_idx, :] = tf.temp_square_2norm_exact(
                 eigs['evals'],
                 pops,
@@ -83,6 +85,7 @@ if __name__ == '__main__':
                 verbose=rank==0,
                 note=exp_note(task_num, k)
             )
+            tools.mpi_print(f'f={k}: Computing eval diffs')
             diff_output = tf.eng_diffs(
                 eigs['evals'],
                 k,

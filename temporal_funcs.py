@@ -1,3 +1,7 @@
+import mpi4py
+mpi4py.rc.initialize = False
+from mpi4py import MPI
+
 import numpy as np
 import dynamite.computations as comp
 import itertools as it
@@ -90,7 +94,7 @@ def temp_square_2norm_exact(evals, pops, k, tau_series, comm=None, chunk=2**8, v
             if count % size != rank:
                 continue
             if verbose:
-                print(f'rank {rank}/{size}: ({a}, {b}) / {multi_sets.shape[0]}')
+                print(f'rank {rank:03d}/{size:03d}: ({a}, {b}) / {multi_sets.shape[0]}')
             sinc_arg = np.subtract.outer(  # (chunk, chunk)
                 eng_sum[a : a + chunk],
                 eng_sum[b : b + chunk]
@@ -116,29 +120,48 @@ def temp_square_2norm_exact(evals, pops, k, tau_series, comm=None, chunk=2**8, v
         return partial
 
 @ut.cache('npz', 'eng_diffs')
-def eng_diffs(evals, k, bin_edges, chunk=1024, verbose=True, note=None):
+def eng_diffs(evals, k, bin_edges, comm=None, chunk=1024, verbose=True, note=None):
     combs = list(it.combinations(np.arange(evals.size), k))
     eng_sum = np.sum(evals[combs], axis=-1)
-    min_diff = np.max(evals)
+    local_min = np.max(evals)
+
+    rank = 0
+    size = 1
+    if comm:
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+    c = -1
     
-    counts = np.zeros(bin_edges.size-1, dtype=np.int32)
+    local_counts = np.zeros(bin_edges.size-1, dtype=np.int32)
     for i in range(0, len(combs), chunk):
         for j in range(i, len(combs), chunk):
+            c += 1
+            if c % size != rank:
+                continue
+
             if verbose:
-                print(f'({i},{j}) / {len(combs)}')
+                print(f'rank {rank:03d}/{size:03d}: ({i}, {j}) / {len(combs)}')
+
             diffs = np.abs(np.subtract.outer(eng_sum[i:i+chunk], eng_sum[j:j+chunk]))  # (chunk, chunk)
             if i == j:
                 diffs = diffs[np.triu_indices(diffs.shape[0], k=1)]
             else:
                 diffs = diffs.ravel()
-            counts += np.histogram(diffs, bins=bin_edges)[0]
+            local_counts += np.histogram(diffs, bins=bin_edges)[0]
 
             new_min = np.min(diffs)
-            if new_min < min_diff:
-                min_diff = new_min
-    # print(f'sum: {np.sum(counts)}')
+            if new_min < local_min:
+                local_min = new_min
+    # print(f'sum: {np.sum(local_counts)}')
     # print(f'len: {(len(combs)**2 - len(combs)) // 2}')
-    # assert np.sum(counts) == ((len(combs)**2 - len(combs)) // 2)
-    # print(f'k={k} min diff: {min_diff}')
-    return {'counts': counts, 'min': min_diff}
+    # assert np.sum(local_counts) == ((len(combs)**2 - len(combs)) // 2)
+    # print(f'k={k} min diff: {local_min}')
+    if comm:
+        counts = np.empty_like(local_counts)
+        m = 0
+        comm.Allreduce(local_counts, counts)
+        comm.allreduce(local_min, m)
+        return {'counts': counts, 'min': m}
+    else:
+        return {'counts': local_counts, 'min': local_min}
 

@@ -52,22 +52,21 @@ if __name__ == '__main__':
         )
         evals = eigs['evals']
         pops = la.get_pops(eigs['evecs'], psi0_np)
-
-        tools.mpi_print('Computing Eigenvalue Differences')
-        for i, k in enumerate(k_series):
-            output = tf.eng_diffs(
-                evals,
-                k,
-                bin_edges,
-                note=f'{base_note}_k{k}_nbins{nbins}_cf{hist_cutoff}'
-            )
-            diff_counts[i] = output['counts']
-            min_diff[i] = output['min']
-    
     comm.Bcast(evals, root=0)
     comm.Bcast(pops, root=0)
-    comm.Bcast(diff_counts, root=0)
-    comm.Bcast(min_diff, root=0)
+
+    tools.mpi_print('Computing Eigenvalue Differences')
+    for i, k in enumerate(k_series):
+        output = tf.eng_diffs(
+            evals,
+            k,
+            bin_edges,
+            comm=comm,
+            verbose=(rank==0),
+            note=f'{base_note}_k{k}_nbins{nbins}_cf{hist_cutoff}'
+        )
+        diff_counts[i] = output['counts']
+        min_diff[i] = output['min']
     
     tools.mpi_print('Computing temp_norm_squared_exact')
     temp_2norm = np.zeros((tau_series.size, k_series.size))
@@ -86,7 +85,7 @@ if __name__ == '__main__':
     if rank == 0:
         p_str = '\n'.join((
             'Parameters:',
-            rf'Hamiltonian: {H_str}, $hx = {hx:.4f}$, $hz = {hz:.4f}$',
+            rf'Hamiltonian: {H_str}, $L={dm.config.L}$, $hx = {hx:.4f}$, $hz = {hz:.4f}$',
             rf'$|\psi_0\rangle$: {psi0_str}',
         ))
 
@@ -98,12 +97,7 @@ if __name__ == '__main__':
         
         ax.set(xlabel=r'$\tau$', ylabel=ylabel, xscale='log', yscale='log')
         ax.legend(**ut.LEGEND_OPTIONS)
-        fig.text(
-            1.05, 0.5,
-            p_str,
-            transform=fig.transFigure,
-            verticalalignment='center'
-        )
+        fig.suptitle(p_str)
         fig.savefig(os.path.join(ut.FIG_DIR, f'temp_rp_2norm_{base_note}_psi0{psi0_str}.svg'), **ut.FIG_SAVE_OPTIONS)
 
         # Energy Difference Histogram
