@@ -16,6 +16,9 @@ CACHE_DIR = './computation_cache/'
 # directory to save all figures
 FIG_DIR = './figs'
 
+FIG_UNIT = 6
+fig_size = lambda x, y: (x*FIG_UNIT, y*FIG_UNIT)
+
 
 def cache(method: cache_type, base):
     """
