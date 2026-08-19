@@ -42,3 +42,12 @@ def SYK(q, rng, J=1):
 def SYK_numpy(q, rng, J=1, note=None, require_cache=False):
     return SYK(q, rng, J=J).to_numpy(sparse=False)
 
+
+def SYK42(g, rng, J=1):
+    return SYK(4, rng, J=J) + (g / 4**dm.config.L) * SYK(2, rng, J=J)
+
+
+@ut.cache('npy', 'SYK42_numpy_H')
+def SYK42_numpy(g, rng, J=1, note=None, require_cache=False):
+    return SYK42(g, rng, J=J).to_numpy(sparse=False)
+

@@ -77,6 +77,7 @@ if __name__ == '__main__':
             k,
             tau_series,
             comm=comm,
+            verbose=(rank==0),
             note=f'{base_note}_psi0{psi0_str}_k{k}_tmax{log_tmax}_ns{ns}'
         )
     diff_exact = np.sqrt(temp_2norm)  # we already subtracted the RPE term in this computation
@@ -97,7 +98,7 @@ if __name__ == '__main__':
         
         ax.set(xlabel=r'$\tau$', ylabel=ylabel, xscale='log', yscale='log')
         ax.legend(**ut.LEGEND_OPTIONS)
-        fig.suptitle(p_str)
+        fig.suptitle(p_str, y=1.05)
         fig.savefig(os.path.join(ut.FIG_DIR, f'temp_rp_2norm_{base_note}_psi0{psi0_str}.svg'), **ut.FIG_SAVE_OPTIONS)
 
         # Energy Difference Histogram

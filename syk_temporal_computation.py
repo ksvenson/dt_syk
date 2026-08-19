@@ -19,27 +19,35 @@ if __name__ == '__main__':
     rank = comm.Get_rank()
     size = comm.Get_size()
 
+    dm.config.L = 6
+
     # SYK Parameters
-    N = 12
+    N = 2 * dm.config.L
     q = 4
-    H_str = 'SYK'
+    g = 1
     realizations = 100
+    H_str = 'SYK42'
 
     # Experiment Parameters
     seed = 628**3  # the better circle constant!
-    dm.config.L = N // 2
     psi0_str = 'mark37'
     theta = 0.6
     psi0 = comp.evolve(op.index_sum(op.sigmaz()), st.State(0), -theta / 2)
     psi0_np = psi0.to_numpy(to_all=True)
-    k_series = np.arange(3) + 1
+    k_series = np.arange(2) + 1
     log_tmax = 8
     ns = 100
     tau_series = np.logspace(0, log_tmax, num=ns)
     nbins = 100
     hist_cutoff = 0.1
-    exp_note = lambda task_num, k: f'{H_str}_N{N}_q{q}_seed{seed}_num{task_num}_psi0{psi0_str}_k{k}_logtmax{log_tmax}_ns{ns}'
-    H_note = lambda task_num: f'N{N}_q{q}_seed{seed}_num{task_num}'
+    if H_str == 'SYK':
+        exp_note = lambda task_num, k: f'{H_str}_N{N}_q{q}_seed{seed}_num{task_num}_psi0{psi0_str}_k{k}_logtmax{log_tmax}_ns{ns}'
+        H_note = lambda task_num: f'N{N}_q{q}_seed{seed}_num{task_num}'
+    elif H_str == 'SYK42':
+        exp_note = lambda task_num, k: f'{H_str}_N{N}_g{g:.4f}_seed{seed}_num{task_num}_psi0{psi0_str}_k{k}_logtmax{log_tmax}_ns{ns}'
+        H_note = lambda task_num: f'N{N}_g{g:.4f}_seed{seed}_num{task_num}'
+    else:
+        raise NotImplementedError(f'Unsupported SYK Hamiltonian: {H_str}')
     
     # Hamiltonian construction
     # Done on one rank so that rng is handled safely.
@@ -48,7 +56,12 @@ if __name__ == '__main__':
         for task_num in range(realizations):
             print(f'Constructing H {task_num}')
             # cache the result, distribute to other ranks later
-            _ = hf.SYK_numpy(q, rng, note=H_note(task_num))
+            if H_str == 'SYK':
+                _ = hf.SYK_numpy(q, rng, note=H_note(task_num))
+            elif H_str == 'SYK42':
+                _ = hf.SYK42_numpy(g, rng, note=H_note(task_num))
+            else:
+                raise NotImplementedError(f'Unsupported SYK Hamiltonian: {H_str}')
     comm.Barrier()
 
     # Task allocation across ranks
@@ -70,10 +83,14 @@ if __name__ == '__main__':
     # Computations
     for i, task_num in enumerate(task_alloc[rank]):
         print(f'Rank {rank}: {i+1} / {task_counts[rank]}')
-        H_np = hf.SYK_numpy(None, None, note=H_note(task_num), require_cache=True)
+        if H_str == 'SYK':
+            H_np = hf.SYK_numpy(None, None, note=H_note(task_num), require_cache=True)
+        elif H_str == 'SYK42':
+            H_np = hf.SYK42_numpy(None, None, note=H_note(task_num), require_cache=True)
+        else:
+            raise NotImplementedError(f'Unsupported SYK Hamiltonian: {H_str}')
         eigs = la.eig_system(H_np, note=H_str+'_'+H_note(task_num))
         pops = la.get_pops(eigs['evecs'], psi0_np)
-        
 
         for k_idx, k in enumerate(k_series):
             tools.mpi_print(f'k={k}: Computing temp_norm_squared_exact')
@@ -128,13 +145,25 @@ if __name__ == '__main__':
 
     # Final statistics and plotting
     if rank == 0:
-        p_str = '\n'.join((
-            'Parameters:',
-            rf'Hamiltonian: {H_str}, $N = {N}$, $q = {q}$',
-            f'Disorder Realizations: {realizations}',
-            f'Seed: {seed}',
-            rf'$|\psi_0\rangle$: {psi0_str}',
-        ))
+        # TODO: add support for SYK42 Hamiltonian
+        if H_str == 'SYK':
+            p_str = '\n'.join((
+                'Parameters:',
+                rf'Hamiltonian: {H_str}, $N = {N}$, $q = {q}$',
+                f'Disorder Realizations: {realizations}',
+                f'Seed: {seed}',
+                rf'$|\psi_0\rangle$: {psi0_str}',
+            ))
+        elif H_str == 'SYK42':
+            p_str = '\n'.join((
+                'Parameters:',
+                rf'Hamiltonian: {H_str}, $N = {N}$, $g = {g}$',
+                f'Disorder Realizations: {realizations}',
+                f'Seed: {seed}',
+                rf'$|\psi_0\rangle$: {psi0_str}',
+            ))
+        else:
+            raise NotImplementedError(f'Unsupported SYK Hamiltonian: {H_str}')
 
         # Temporal and Random Phase Comparison
         temp_rp_2norm = np.sqrt(temp_rp_2norm)  # take square root for 2-norm
@@ -144,8 +173,8 @@ if __name__ == '__main__':
         for i, k in enumerate(k_series):
             ax.plot(tau_series, mean[i], label=rf'$k={k}$', color=f'C{i}')
             ax.fill_between(tau_series, mean[i]-sem[i], mean[i]+sem[i], alpha=0.5, color=f'C{i}')
-        m1 = tau_series**-1 > 10**-2
-        m2 = tau_series**(-1/2) > 10**-2
+        m1 = tau_series**-1 > 10**-10
+        m2 = tau_series**(-1/2) > 10**-10
         ax.plot(tau_series[m1], (tau_series**-1)[m1], label=r'$\tau^{-1}$', linestyle='dashed', color=f'C{k_series.size}')
         ax.plot(tau_series[m2], (tau_series**(-1/2))[m2], label=r'$\tau^{-1/2}$', linestyle='dashed', color=f'C{k_series.size+1}')
         ylabel = r'$||\rho_\text{Temp.}^{(k)} - \rho_\text{RP.}^{(k)}||_2$'
