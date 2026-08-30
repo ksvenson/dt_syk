@@ -11,6 +11,13 @@ einsum_idxes = list(string.ascii_lowercase)
 
 
 def moment_constructor(k):
+    """
+    Creates a string defining the contraction scheme for the computation of the
+    projected ensemble.
+    `a` is the tau index.
+    `b` is the index for the bath (which we sum over).
+    All other indices are for the copies of system A.
+    """
     assert 2*k+2 < len(einsum_idxes)
     input = ','.join([f'ab{i}' for i in einsum_idxes[2:2*k+2]])
     output = ''.join(einsum_idxes[2:2*k+2])
@@ -50,7 +57,4 @@ def proj_moment(H, psi0, tau_series, k_series, DA, note=None):
             DA**k
         )
     return out
-
-
-def scr_moment()
 

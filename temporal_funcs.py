@@ -7,6 +7,7 @@ import dynamite.computations as comp
 import itertools as it
 
 import utilities as ut
+import projected_funcs as pf
 
 
 @ut.cache('npy', 'time_evolved_overlaps')
@@ -35,6 +36,29 @@ def time_evolved_overlaps(H, psi0, dt, num_samples, note=None):
     return overlaps
 
 
+@ut.cache('npz', 'time_evolved_overlaps_and_rhoA')
+def time_evolved_overlaps_and_rhoA(evals, evecs, psi0_eng_basis, tau_series, k_series, DA, chunk=2**12, note=None):
+    ret = {'overlaps': np.empty(tau_series.shape, dtype=psi0_eng_basis.dtype)}
+    for k in k_series:
+        ret[f'rhoA_k{k}'] = np.empty(tau_series.shape + (DA**k, DA**k), dtype=psi0_eng_basis.dtype)
+    for t_idx in range(0, tau_series.size, chunk):
+        # Overlap computation
+        psit = np.exp(-1j * np.einsum('a,b->ab', tau_series[t_idx:t_idx+chunk], evals)) * psi0_eng_basis[np.newaxis, :]
+        ret['overlaps'][t_idx:t_idx+chunk] = np.einsum('a,ba->b', psi0_eng_basis.conj(), psit)
+
+        # rhoA_k computation
+        psit = psit.reshape(tau_series.size, -1, DA)
+        norm = np.sum(np.abs(psit)**2, axis=-1, keepdims=True)
+        for k in k_series:
+            ret[f'rhoA_k{k}'][t_idx:t_idx+chunk] = np.einsum(
+                pf.moment_constructor(k),
+                *((psit / norm**(1-1/k),)*k + (psit.conj(),)*k),
+                optimize=True
+            )
+            ret[f'rhoA_k{k}'][t_idx:t_idx+chunk] = ret[f'rhoA_k{k}'].reshape(tau_series.size, DA**k, DA**k)
+    return ret
+
+
 def temp_square_2norm_sampled(overlaps, k_series):
     """
     Computes the square of the kth moment of the finite-time temporal ensemble,
@@ -49,7 +73,7 @@ def temp_square_2norm_sampled(overlaps, k_series):
     The first axis is the tau axis.
     Tau can be constructed with `dt * np.arange(overlaps.size)`.
     """
-    assert overlaps[0] == 1
+    assert np.abs(overlaps[0] - 1) < 10**-10
     ret = np.full((overlaps.size, k_series.size), np.nan)
     ret[0] = 1
     ret[1:] = np.power.outer(np.abs(overlaps[1:]), 2*k_series)
