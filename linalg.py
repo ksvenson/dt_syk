@@ -14,3 +14,14 @@ def get_pops(evecs, psi0):
     pops = np.einsum('ab,b->a', evecs.conj().T, psi0)
     return np.abs(pops)**2
 
+
+def norm(arr, p, **kwargs):
+    ord = None
+    if p == 1:
+        ord = 'nuc'
+    elif p == 2:
+        ord = 'fro'
+    else:
+        raise NotImplementedError('Only norms 1 and 2 are implemented')
+    return np.linalg.norm(arr, ord=ord, **kwargs)
+
