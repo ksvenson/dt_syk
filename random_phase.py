@@ -20,17 +20,19 @@ def rpe_moment(pops, k):
     return ret.reshape((d**k, d**k))
 
 
-@ut.cache('npy', 'rpe_square_2norm')
+# @ut.cache('npy', 'rpe_square_2norm')
 def rpe_square_2norm(pops, k, chunk=2**12, note=None):
-    ret = np.zeros(1)  # numpy array so we can cache it
-    multi_sets = np.array(list(it.combinations_with_replacement(np.arange(pops.size), k)))
-    mult = np.full(multi_sets.shape[0], sp.special.factorial(k))
-    for m_idx, m in enumerate(multi_sets):
-        _, counts = np.unique(m, axis=-1, return_counts=True)
-        mult[m_idx] /= np.prod(sp.special.factorial(counts))
-    for c_idx in range(0, multi_sets.shape[0], chunk):
-        ret += np.sum((mult[c_idx:c_idx+chunk] * np.prod(pops[multi_sets[c_idx:c_idx+chunk]], axis=-1))**2)
-    return ret
+    ret = 0
+    # multi_sets = np.array(list(it.combinations_with_replacement(np.arange(pops.size), k)))
+    # mult = np.full(multi_sets.shape[0], sp.special.factorial(k))
+    # for m_idx, m in enumerate(multi_sets):
+    #     _, counts = np.unique(m, axis=-1, return_counts=True)
+    #     mult[m_idx] /= np.prod(sp.special.factorial(counts))
+    # for c_idx in range(0, multi_sets.shape[0], chunk):
+    #     ret += np.sum((mult[c_idx:c_idx+chunk] * np.prod(pops[multi_sets[c_idx:c_idx+chunk]], axis=-1))**2)
+    for m in np.ndindex((pops.size,)*k):
+        ret += len(set(it.permutations(m))) * np.prod(pops[list(m)])**2
+    return np.array(ret)  # numpy array so we can cache it
 
 
 if __name__ == '__main__':

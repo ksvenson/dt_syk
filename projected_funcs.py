@@ -83,7 +83,7 @@ def time_evolved_overlaps_and_rhoA(evals, evecs, psi0, tau_series, k_series, DA,
 
         # rhoA_k computation
         psit = np.einsum('ab,cb->ca', evecs, psit_eng_basis)
-        psit = psit.reshape(tau_series.size, -1, DA)  # implicit reference to factoring convention.
+        psit = psit.reshape(psit.shape[0], -1, DA)  # implicit reference to factoring convention.
         norm2 = np.sum(np.abs(psit)**2, axis=-1, keepdims=True)
         for k in k_series:
             # in the denominator, we have k powers of norm for each of the k-copies of
@@ -94,8 +94,7 @@ def time_evolved_overlaps_and_rhoA(evals, evecs, psi0, tau_series, k_series, DA,
                 moment_constructor(k, 'projected'),
                 *((psit / norm2**(1-1/k),)*k + (psit.conj(),)*k),
                 optimize=True
-            )
-            ret[f'rhoA_k{k}'][t_idx:t_idx+chunk] = ret[f'rhoA_k{k}'].reshape(tau_series.size, DA**k, DA**k)
+            ).reshape(psit.shape[0], DA**k, DA**k)
     return ret
 
 
@@ -116,12 +115,16 @@ def cond_scr_moment(evecs, pops, n_scr, k_series, DA, rng, note=None):
     sig_A_cond_z = np.einsum('abac->abc', sig_A_cond_z)
 
     sig_evals, sig_evecs = np.linalg.eigh(sig_A_cond_z)
-    sqrt_sig_A_cond_z = np.einsum('zab,zbc', sig_evecs, np.sqrt(sig_evals)[:, np.newaxis] * sig_evecs.conj().T)
+    sqrt_sig_A_cond_z = np.einsum(
+        'zab,zbc->zac',
+        sig_evecs,
+        np.sqrt(sig_evals)[:, :, np.newaxis] * np.einsum('abc->acb', sig_evecs.conj())
+    )
 
     # Generate ranom unitaties and have them act on [1, 0].
     # Can't use the second column since the columns are orthogonal and thus not
     # independent.
-    haar_states = sp.stats.unitary_group.rvs(dim=DA, size=n_scr)[:, :, 0]
+    haar_states = sp.stats.unitary_group.rvs(dim=DA, size=n_scr, random_state=rng)[:, :, 0]
     scr_states = np.einsum('zab,ub->zua', sqrt_sig_A_cond_z, haar_states)
     norm2 = np.sum(np.abs(scr_states)**2, axis=-1, keepdims=True)
 

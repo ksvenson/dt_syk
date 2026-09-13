@@ -25,15 +25,17 @@ if __name__ == '__main__':
     N = 12   # total number of fermions
     NA = 2   # number of fermions in subsystem
     g = 100    # coupling to 2-body interactions
-    realizations = 10  # disorder realizations
+    realizations = 2  # disorder realizations
 
     # RNG config
     base_seed = 628**3  # the better circle constant!
-    rng = lambda r: np.random.default_rng(np.random.SeedSequence(base_seed, spawn_key=(r,)))
+    # s=0 for SYK couplings
+    # s=1 for random unitaries
+    rng = lambda r, s: np.random.default_rng(np.random.SeedSequence(base_seed, spawn_key=(r, s)))
     H_title = 'SYK42'
     H_str = lambda r: f'{H_title}_N{N}_g{g}_base-seed{base_seed}_r{r}'
     H_func = hf.SYK42_numpy
-    H_args = lambda r: [g, rng(r)]
+    H_args = lambda r: [g, rng(r, 0)]
 
     # dynamite config
     dm.config.L = N // 2
@@ -80,35 +82,36 @@ if __name__ == '__main__':
     for i, r in enumerate(task_alloc[rank]):  # r stands for realization
         print(f'Rank {rank}: {i+1} / {task_counts[rank]}')
         H_np = H_func(*H_args(r), note=H_str(r))
+        print(f'Starting Diagonalization')
         eigs = la.eig_system(H_np, note=H_str(r))
         evals = eigs['evals']
         evecs = eigs['evecs']
-        psi0_eng_basis = np.einsum('ab,b->a', evecs.conj().T, psi0_np)
 
-        pops = np.abs(psi0_eng_basis)**2
+        print(f'Finding Overlaps and rhoA')
         overlaps_rhoA = pf.time_evolved_overlaps_and_rhoA(
             evals,
             evecs,
-            psi0_eng_basis,
+            psi0_np,
             tau_series,
             k_series,
             DA,
-            note=temp_note(r, f'{k_series[0]}-{k_series[-1]}')
+            note=proj_note(r, f'{k_series[0]}-{k_series[-1]}')  # proj_note here since this depends on DA
         )
+        print(f'Finding conditional scrooge moment')
         rho_scr = pf.cond_scr_moment(
             evecs,
-            pops,
+            overlaps_rhoA['pops'],
             n_scr,
             k_series,
             DA,
-            rng(r),
+            rng(r, 1),
             note=scr_note(r, f'{k_series[0]}-{k_series[-1]}')
         )
 
         local_tr[i] = tf.temp_square_2norm_sampled(overlaps_rhoA['overlaps'], k_series)
         for k_idx, k in enumerate(k_series):
-            local_tr[i, :, k_idx] = local_tr[i, :, k_idx] - rp.rpe_square_2norm(pops, k, note=temp_note(r, k))
-            local_ps[i, :, k_idx] = la.norm(overlaps_rhoA[f'rhoA_k{k}'] - rho_scr[f'{k}'][np.newaxis, :, :], 2, axis=(1, 2))
+            local_tr[i, :, k_idx] = local_tr[i, :, k_idx] - rp.rpe_square_2norm(overlaps_rhoA['pops'], k, note=temp_note(r, k))
+            local_ps[i, :, k_idx] = la.norm(overlaps_rhoA[f'rhoA_k{k}'] - rho_scr[f'k{k}'][np.newaxis, :, :], 2, axis=(1, 2))
     # take square root for the 2-norm  
     local_tr = np.sqrt(local_tr)
     # average over states drawn from the temporal ensemble
@@ -148,6 +151,11 @@ if __name__ == '__main__':
         # FIXME: This statistic does not account for our finite sample of the scrooge ensemble
         ps_sem = np.std(proj_scr_2norm, ddof=1, axis=0) / np.sqrt(realizations)
 
+        print(tr_mean.shape)
+        print(ps_mean.shape)
+
+        print(f'std in proj moment: {np.mean(np.std(ps_mean, axis=-1))}')
+
         fig, ax = plt.subplots()
         for i, k in enumerate(k_series):
             ax.plot(tau_series, tr_mean[:,i], label=rf'$k={k}$', color=f'C{i}')
@@ -172,9 +180,10 @@ if __name__ == '__main__':
             ax.fill_between(tau_series, ps_mean[:,i]-ps_sem[:,i], ps_mean[:,i]+ps_sem[:,i], alpha=0.5, color=f'C{i}')
         ax.set(
             xlabel=r'$\tau$',
-            ylabel=r'$||\rho_\text{Proj.}^{(k)} - \sum_{z=}^{D_B} \langle z |\sigma_B|z\rangle \rho_\text{Scr}^{(k)}(\hat{\sigma}_{A|z})||_2$',
+            ylabel=r'$||\rho_\text{Proj.}^{(k)} - \sum_{z=1}^{D_B} \langle z |\sigma_B|z\rangle \rho_\text{Scr}^{(k)}(\hat{\sigma}_{A|z})||_2$',
             xscale='log',
             yscale='log'
         )
+        ax.legend(**ut.LEGEND_OPTIONS)
         fig.suptitle(p_str, y=1.1)
         fig.savefig(os.path.join(ut.FIG_DIR, 'proj_scr_2norm_' + proj_scr_note(realizations, k_series[-1]) + '.png'), **ut.FIG_SAVE_OPTIONS)
