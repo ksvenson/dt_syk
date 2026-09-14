@@ -11,6 +11,7 @@ import scipy as sp
 import dynamite.computations as comp
 
 import utilities as ut
+import linalg as la
 
 
 einsum_idxes = list(string.ascii_lowercase)
@@ -44,36 +45,36 @@ def moment_constructor(k, ensemble):
         raise ValueError(f'Unrecognized ensemble: "{ensemble}"!')
 
 
-@ut.cache('npz', 'time_evolved_overlaps_and_rhoA')
-def time_evolved_overlaps_and_rhoA(evals, evecs, psi0, tau_series, k_series, DA, chunk=2**12, note=None):
+@ut.cache('npz', 'time_evolved_overlaps_and_ps_2norm')
+def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis, tau_series, k_series, DA, cond_scr_moment, chunk=2**12, note=None):
     """
-    This functions computes three objects:
-    1. Time evolved overlaps: <psi_0|psi_t>.
-       An array with the same size as `tau_series`.
-       Stored in `ret['overlaps']`.
+    This functions computes two objects:
+    1. 
+       - Time evolved overlaps: <psi_0|psi_t>.
+       - An array with the same size as `tau_series`.
+       - Stored in `ret['overlaps']`.
 
-    2. Energy eigenstate populations: |<psi_0|E_n>|**2.
-       An array with size 2**L.
-       Stored in `ret['pops']`.
-
-    3. kth moments of the projected ensemble: \rho_A^{(k)}.
-       An array with shape (`tau_series.size`, DA**k, DA**k).
-       Stored in `ret[f'rhoA_k{k}]`.
+    2. 
+       - The 2-norm distance between the kth moments of the projected ensemble
+       \rho_A^{(k)}, and the kth moments of the conditional scrooge ensemble (given as
+       an argument to this function).
+       - An array with shape `(tau_series.size, k_series.size)`.
+       - Stored in `ret[f'2norm']`.
 
     These objects are bunched in the same computation since all of them except `pops`
     require a chunked loop over time. In particular, \rho_A^{(k)} requires psit, so
     it's more memory efficient to compute \rho_A^{(k)} at the same time the overlaps are
     computed.
     """
-    ret = {'overlaps': np.empty(tau_series.shape, dtype=psi0.dtype)}
+    ret = {
+        'overlaps': np.empty(tau_series.shape, dtype=psi0_eng_basis.dtype)
+    }
     for k in k_series:
-        ret[f'rhoA_k{k}'] = np.empty(tau_series.shape + (DA**k, DA**k), dtype=psi0.dtype)
-
-    psi0_eng_basis = np.einsum('ab,b->a', evecs.conj().T, psi0)
-    ret['pops'] = np.abs(psi0_eng_basis)**2
+        ret['2norm'] = np.empty(tau_series.shape + k_series.shape, dtype=tau_series.dtype)
 
     for t_idx in range(0, tau_series.size, chunk):
         # Overlap computation
+        print(f't_idx: {t_idx}')
         psit_eng_basis = np.exp(-1j * np.einsum(
             'a,b->ab',
             tau_series[t_idx:t_idx+chunk],
@@ -84,17 +85,19 @@ def time_evolved_overlaps_and_rhoA(evals, evecs, psi0, tau_series, k_series, DA,
         # rhoA_k computation
         psit = np.einsum('ab,cb->ca', evecs, psit_eng_basis)
         psit = psit.reshape(psit.shape[0], -1, DA)  # implicit reference to factoring convention.
-        norm2 = np.sum(np.abs(psit)**2, axis=-1, keepdims=True)
-        for k in k_series:
+        norm2 = np.sum(np.abs(psit)**2, axis=-1, keepdims=True)  # "norm of the vectors squared"
+        for k_idx, k in enumerate(k_series):
             # in the denominator, we have k powers of norm for each of the k-copies of
             # the state, minus 1 power for the probability of getting the projected
             # state. Hence the power of (1-1/k) below, which after the einsum is
             # k*(1-1/k) = k-1.
-            ret[f'rhoA_k{k}'][t_idx:t_idx+chunk] = np.einsum(
+            # ret[f'rhoA_k{k}'][t_idx:t_idx+chunk]
+            rhoA_k = np.einsum(
                 moment_constructor(k, 'projected'),
                 *((psit / norm2**(1-1/k),)*k + (psit.conj(),)*k),
                 optimize=True
             ).reshape(psit.shape[0], DA**k, DA**k)
+            ret['2norm'][t_idx:t_idx+chunk, k_idx] = la.norm(rhoA_k - cond_scr_moment[f'k{k}'][np.newaxis, :, :], 2, axis=(1,2))
     return ret
 
 
@@ -115,10 +118,11 @@ def cond_scr_moment(evecs, pops, n_scr, k_series, DA, rng, note=None):
     sig_A_cond_z = np.einsum('abac->abc', sig_A_cond_z)
 
     sig_evals, sig_evecs = np.linalg.eigh(sig_A_cond_z)
+
     sqrt_sig_A_cond_z = np.einsum(
         'zab,zbc->zac',
         sig_evecs,
-        np.sqrt(sig_evals)[:, :, np.newaxis] * np.einsum('abc->acb', sig_evecs.conj())
+        np.sqrt(np.clip(sig_evals, 0, None))[:, :, np.newaxis] * np.einsum('abc->acb', sig_evecs.conj())
     )
 
     # Generate ranom unitaties and have them act on [1, 0].

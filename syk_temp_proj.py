@@ -22,8 +22,8 @@ if __name__ == '__main__':
     size = comm.Get_size()
 
     # SYK Parameters
-    N = 12   # total number of fermions
-    NA = 2   # number of fermions in subsystem
+    N = 16   # total number of fermions
+    NA = 4   # number of fermions in subsystem
     g = 100    # coupling to 2-body interactions
     realizations = 2  # disorder realizations
 
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     psi0_np = psi0.to_numpy(to_all=True)
     assert psi0_np is not None  # to silence my LSP
     dt = 1.0
-    log_tmax = 6
+    log_tmax = 4
     tau_series = dt * np.arange(0, int(10**log_tmax / dt))
     temp_note = lambda r, k: f'{H_str(r)}_psi0{psi0_str}_k{k}_dt{dt}_logtmax{log_tmax}'
     proj_note = lambda r, k: f'{temp_note(r, k)}_DA{DA}'
@@ -87,20 +87,13 @@ if __name__ == '__main__':
         evals = eigs['evals']
         evecs = eigs['evecs']
 
-        print(f'Finding Overlaps and rhoA')
-        overlaps_rhoA = pf.time_evolved_overlaps_and_rhoA(
-            evals,
-            evecs,
-            psi0_np,
-            tau_series,
-            k_series,
-            DA,
-            note=proj_note(r, f'{k_series[0]}-{k_series[-1]}')  # proj_note here since this depends on DA
-        )
+        psi0_eng_basis = np.einsum('ab,b->a', evecs.conj().T, psi0_np)
+        pops = np.abs(psi0_eng_basis)**2
+
         print(f'Finding conditional scrooge moment')
         rho_scr = pf.cond_scr_moment(
             evecs,
-            overlaps_rhoA['pops'],
+            pops,
             n_scr,
             k_series,
             DA,
@@ -108,10 +101,22 @@ if __name__ == '__main__':
             note=scr_note(r, f'{k_series[0]}-{k_series[-1]}')
         )
 
-        local_tr[i] = tf.temp_square_2norm_sampled(overlaps_rhoA['overlaps'], k_series)
+        print(f'Finding Overlaps and Trace Distances')
+        overlaps_ps = pf.time_evolved_overlaps_and_ps_2norm(
+            evals,
+            evecs,
+            psi0_eng_basis,
+            tau_series,
+            k_series,
+            DA,
+            rho_scr,
+            note=scr_note(r, f'{k_series[0]}-{k_series[-1]}')
+        )
+        local_ps[i, :, :] = overlaps_ps['2norm']
+
+        local_tr[i] = tf.temp_square_2norm_sampled(overlaps_ps['overlaps'], k_series)
         for k_idx, k in enumerate(k_series):
-            local_tr[i, :, k_idx] = local_tr[i, :, k_idx] - rp.rpe_square_2norm(overlaps_rhoA['pops'], k, note=temp_note(r, k))
-            local_ps[i, :, k_idx] = la.norm(overlaps_rhoA[f'rhoA_k{k}'] - rho_scr[f'k{k}'][np.newaxis, :, :], 2, axis=(1, 2))
+            local_tr[i, :, k_idx] = local_tr[i, :, k_idx] - rp.rpe_square_2norm(pops, k, note=temp_note(r, k))
     # take square root for the 2-norm  
     local_tr = np.sqrt(local_tr)
     # average over states drawn from the temporal ensemble
@@ -150,9 +155,6 @@ if __name__ == '__main__':
         ps_mean = np.mean(proj_scr_2norm, axis=0)
         # FIXME: This statistic does not account for our finite sample of the scrooge ensemble
         ps_sem = np.std(proj_scr_2norm, ddof=1, axis=0) / np.sqrt(realizations)
-
-        print(tr_mean.shape)
-        print(ps_mean.shape)
 
         print(f'std in proj moment: {np.mean(np.std(ps_mean, axis=-1))}')
 
