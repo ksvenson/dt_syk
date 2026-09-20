@@ -14,7 +14,7 @@
 #SBATCH -J syk_temp_proj
 #SBATCH -o tacc_output/syk_%j.out
 #SBATCH -e tacc_output/syk_%j.err
-#SBATCH --mail-type=end,fail
+#SBATCH --mail-type=all
 #SBATCH --mail-user=ks59683@utexas.edu
 
 set -o pipefail   # deliberately no `set -u`: venv activate scripts trip it
@@ -22,7 +22,7 @@ set -o pipefail   # deliberately no `set -u`: venv activate scripts trip it
 N=${1:?usage: sbatch syk_job.slurm <N_fermions>}
 
 cd "$SLURM_SUBMIT_DIR" || exit 1
-mkdir -p computation_cache figs timings
+mkdir -p tacc_output computation_cache figs timings
 
 source .venv/bin/activate
 
