@@ -46,7 +46,7 @@ def moment_constructor(k, ensemble):
 
 
 @ut.cache('npz', 'time_evolved_overlaps_and_ps_2norm')
-def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis, tau_series, k_series, DA, cond_scr_moment, chunk=2**12, note=None):
+def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis, tau_series, k_series, DA, cond_scr_moment, chunk=2**12, verbose=False, note=None):
     """
     This functions computes two objects:
     1. 
@@ -74,18 +74,19 @@ def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis, tau_series,
 
     for t_idx in range(0, tau_series.size, chunk):
         # Overlap computation
-        print(f't_idx: {t_idx}')
+        if verbose:
+            print(f't_idx: {t_idx}')
         psit_eng_basis = np.exp(-1j * np.einsum(
             'a,b->ab',
             tau_series[t_idx:t_idx+chunk],
             evals
         )) * psi0_eng_basis[np.newaxis, :]
         ret['overlaps'][t_idx:t_idx+chunk] = np.einsum('a,ba->b', psi0_eng_basis.conj(), psit_eng_basis)
-
+        
         # rhoA_k computation
         psit = np.einsum('ab,cb->ca', evecs, psit_eng_basis)
         psit = psit.reshape(psit.shape[0], -1, DA)  # implicit reference to factoring convention.
-        norm2 = np.sum(np.abs(psit)**2, axis=-1, keepdims=True)  # "norm of the vectors squared"
+        norm2 = np.sum(np.abs(psit)**2, axis=-1, keepdims=True)
         for k_idx, k in enumerate(k_series):
             # in the denominator, we have k powers of norm for each of the k-copies of
             # the state, minus 1 power for the probability of getting the projected

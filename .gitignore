@@ -6,3 +6,4 @@ __pycache__/
 computation_cache/
 *.svg
 .direnv/
+figs/

@@ -2,10 +2,11 @@ import dynamite as dm
 import dynamite.computations as comp
 import dynamite.operators as op
 import dynamite.states as st
+import dynamite.subspaces as ss
 import dynamite.tools as tools
 import numpy as np
 import os
-import matplotlib.pyplot as plt
+# matplotlib.pyplot gets imported on rank 0 later on
 
 import linalg as la
 import hamiltonian_factory as hf
@@ -22,10 +23,10 @@ if __name__ == '__main__':
     size = comm.Get_size()
 
     # SYK Parameters
-    N = 16   # total number of fermions
-    NA = 4   # number of fermions in subsystem
-    g = 100    # coupling to 2-body interactions
-    realizations = 2  # disorder realizations
+    N = 12               # total number of fermions
+    NA = 4               # number of fermions in subsystem
+    g = 100              # coupling to 2-body interactions
+    realizations = size  # disorder realizations
 
     # RNG config
     base_seed = 628**3  # the better circle constant!
@@ -82,15 +83,17 @@ if __name__ == '__main__':
     for i, r in enumerate(task_alloc[rank]):  # r stands for realization
         print(f'Rank {rank}: {i+1} / {task_counts[rank]}')
         H_np = H_func(*H_args(r), note=H_str(r))
-        print(f'Starting Diagonalization')
+        if rank == 0:
+            print(f'Starting Diagonalization')
         eigs = la.eig_system(H_np, note=H_str(r))
         evals = eigs['evals']
         evecs = eigs['evecs']
 
         psi0_eng_basis = np.einsum('ab,b->a', evecs.conj().T, psi0_np)
         pops = np.abs(psi0_eng_basis)**2
-
-        print(f'Finding conditional scrooge moment')
+        
+        if rank == 0:
+            print(f'Finding conditional scrooge moment')
         rho_scr = pf.cond_scr_moment(
             evecs,
             pops,
@@ -100,8 +103,8 @@ if __name__ == '__main__':
             rng(r, 1),
             note=scr_note(r, f'{k_series[0]}-{k_series[-1]}')
         )
-
-        print(f'Finding Overlaps and Trace Distances')
+        if rank == 0:
+            print(f'Finding Overlaps and Trace Distances')
         overlaps_ps = pf.time_evolved_overlaps_and_ps_2norm(
             evals,
             evecs,
@@ -110,13 +113,13 @@ if __name__ == '__main__':
             k_series,
             DA,
             rho_scr,
-            note=scr_note(r, f'{k_series[0]}-{k_series[-1]}')
+            verbose=(rank == 0),
+            note=proj_scr_note(r, f'{k_series[0]}-{k_series[-1]}')
         )
         local_ps[i, :, :] = overlaps_ps['2norm']
 
         local_tr[i] = tf.temp_square_2norm_sampled(overlaps_ps['overlaps'], k_series)
-        for k_idx, k in enumerate(k_series):
-            local_tr[i, :, k_idx] = local_tr[i, :, k_idx] - rp.rpe_square_2norm(pops, k, note=temp_note(r, k))
+        local_tr[i] = local_tr[i, :, :] - rp.rpe_square_2norm(pops, k_series[-1])[np.newaxis, :]
     # take square root for the 2-norm  
     local_tr = np.sqrt(local_tr)
     # average over states drawn from the temporal ensemble
@@ -147,6 +150,7 @@ if __name__ == '__main__':
 
     # Final statistics and plotting
     if rank == 0:
+        import matplotlib.pyplot as plt
         assert temp_rp_2norm is not None  # to silence my LSP
         assert proj_scr_2norm is not None  # to silence my LSP
 
@@ -156,16 +160,14 @@ if __name__ == '__main__':
         # FIXME: This statistic does not account for our finite sample of the scrooge ensemble
         ps_sem = np.std(proj_scr_2norm, ddof=1, axis=0) / np.sqrt(realizations)
 
-        print(f'std in proj moment: {np.mean(np.std(ps_mean, axis=-1))}')
-
         fig, ax = plt.subplots()
         for i, k in enumerate(k_series):
             ax.plot(tau_series, tr_mean[:,i], label=rf'$k={k}$', color=f'C{i}')
             ax.fill_between(tau_series, tr_mean[:,i]-tr_sem[:,i], tr_mean[:,i]+tr_sem[:,i], alpha=0.5, color=f'C{i}')
-        m1 = tau_series**-1 > 10**-10
-        m2 = tau_series**(-1/2) > 10**-10
-        ax.plot(tau_series[m1], (tau_series**-1)[m1], label=r'$\tau^{-1}$', linestyle='dashed', color=f'C{k_series.size}')
-        ax.plot(tau_series[m2], (tau_series**(-1/2))[m2], label=r'$\tau^{-1/2}$', linestyle='dashed', color=f'C{k_series.size+1}')
+        m1 = tau_series[1:]**-1 > 10**-10
+        m2 = tau_series[1:]**(-1/2) > 10**-10
+        ax.plot(tau_series[1:][m1], (tau_series[1:]**-1)[m1], label=r'$\tau^{-1}$', linestyle='dashed', color=f'C{k_series.size}')
+        ax.plot(tau_series[1:][m2], (tau_series[1:]**(-1/2))[m2], label=r'$\tau^{-1/2}$', linestyle='dashed', color=f'C{k_series.size+1}')
         ax.set(
             xlabel=r'$\tau$',
             ylabel=r'$||\rho_\text{Temp.}^{(k)} - \rho_\text{RP.}^{(k)}||_2$',
@@ -174,7 +176,9 @@ if __name__ == '__main__':
         )
         ax.legend(**ut.LEGEND_OPTIONS)
         fig.suptitle(p_str, y=1.1)
-        fig.savefig(os.path.join(ut.FIG_DIR, 'temp_rp_2norm_' + temp_note(realizations, k_series[-1]) + '.png'), **ut.FIG_SAVE_OPTIONS)
+        save_name = os.path.join(ut.FIG_DIR, 'temp_rp_2norm_' + temp_note(realizations, k_series[-1]) + '.png')
+        fig.savefig(save_name, **ut.FIG_SAVE_OPTIONS)
+        print(f'Temporal and Random Phase Figure saved at: {save_name}')
         
         fig, ax = plt.subplots()
         for i, k in enumerate(k_series):
@@ -188,4 +192,6 @@ if __name__ == '__main__':
         )
         ax.legend(**ut.LEGEND_OPTIONS)
         fig.suptitle(p_str, y=1.1)
-        fig.savefig(os.path.join(ut.FIG_DIR, 'proj_scr_2norm_' + proj_scr_note(realizations, k_series[-1]) + '.png'), **ut.FIG_SAVE_OPTIONS)
+        save_name = os.path.join(ut.FIG_DIR, 'proj_scr_2norm_' + proj_scr_note(realizations, k_series[-1]) + '.png')
+        fig.savefig(save_name, **ut.FIG_SAVE_OPTIONS)
+        print(f'Projected and Scrooge Figure saved at: {save_name}')

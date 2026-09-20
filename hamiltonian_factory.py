@@ -22,7 +22,7 @@ def MFIM(hx=0.9045, hz=0.8090, J=1, boundary='open'):
     return field + interaction
 
 
-def SYK(q, rng, J=1):
+def SYK(q, rng, J=1, subspace=None):
     """
     Full SYK.
     `dynamite.config.L` must already be set.
@@ -35,19 +35,22 @@ def SYK(q, rng, J=1):
     couplings = rng.standard_normal(len(hyperedges))
     couplings = couplings * (1j)**(q/2) * np.sqrt((2/N)**(q-1) * J**2 * math.factorial(q-1) / q)
     majs = [dynamite.extras.majorana(i) for i in range(N)]
-    return op.op_sum(op.op_product(majs[j] for j in edge) * couplings[i] for i, edge in enumerate(hyperedges))
+    ret = op.op_sum(op.op_product(majs[j] for j in edge) * couplings[i] for i, edge in enumerate(hyperedges))
+    if subspace is not None:
+        ret.add_subspace(subspace)
+    return ret
 
 
 @ut.cache('npy', 'SYK_numpy_H')
-def SYK_numpy(q, rng, J=1, note=None, require_cache=False):
-    return SYK(q, rng, J=J).to_numpy(sparse=False)
+def SYK_numpy(q, rng, J=1, subspace=None, note=None, require_cache=False):
+    return SYK(q, rng, J=J, subspace=subspace).to_numpy(sparse=False)
 
 
-def SYK42(g, rng, J=1):
-    return SYK(4, rng, J=J) + (g / 4**dm.config.L) * SYK(2, rng, J=J)
+def SYK42(g, rng, J=1, subspace=None):
+    return SYK(4, rng, J=J, subspace=subspace) + (g / 4**dm.config.L) * SYK(2, rng, J=J, subspace=subspace)
 
 
 @ut.cache('npy', 'SYK42_numpy_H')
-def SYK42_numpy(g, rng, J=1, note=None, require_cache=False):
-    return SYK42(g, rng, J=J).to_numpy(sparse=False)
+def SYK42_numpy(g, rng, J=1, subspace=None, note=None, require_cache=False):
+    return SYK42(g, rng, J=J, subspace=subspace).to_numpy(sparse=False)
 
