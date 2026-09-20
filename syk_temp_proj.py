@@ -6,6 +6,7 @@ import dynamite.subspaces as ss
 import dynamite.tools as tools
 import numpy as np
 import os
+import argparse
 # matplotlib.pyplot gets imported on rank 0 later on
 
 import linalg as la
@@ -16,14 +17,25 @@ import random_phase as rp
 import utilities as ut
 
 
+def validate_N(arg):
+    num = int(arg)
+    if num <= 4:
+        raise ValueError('N must be greater than 4.')
+    return num
+
+
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--N', type=validate_N, required=True, help='Total number of fermions')
+    args = parser.parse_args()
+
     # MPI config
     comm = tools.MPI_COMM_WORLD().tompi4py()
     rank = comm.Get_rank()
     size = comm.Get_size()
 
     # SYK Parameters
-    N = 12               # total number of fermions
+    N = args.N           # total number of fermions
     NA = 4               # number of fermions in subsystem
     g = 100              # coupling to 2-body interactions
     realizations = size  # disorder realizations
