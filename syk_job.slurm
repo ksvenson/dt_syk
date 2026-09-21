@@ -1,10 +1,6 @@
 #!/bin/bash
 #----------------------------------------------------------------------
 # One SYK run at a single system size.
-#
-# Do not submit this directly -- use submit_sweep.sh, which overrides
-# -J/-o/-e/-n/-t per system size. The directives below are only the
-# fallback defaults for a manual `sbatch syk_job.slurm <N>`.
 #----------------------------------------------------------------------
 #SBATCH -A PHY26019
 #SBATCH -p normal

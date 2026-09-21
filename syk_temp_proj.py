@@ -93,7 +93,8 @@ if __name__ == '__main__':
     
     # Computations
     for i, r in enumerate(task_alloc[rank]):  # r stands for realization
-        print(f'Rank {rank}: {i+1} / {task_counts[rank]}')
+        if rank == 0:
+            print(f'Rank {rank}: {i+1} / {task_counts[rank]}')
         H_np = H_func(*H_args(r), note=H_str(r))
         if rank == 0:
             print(f'Starting Diagonalization')
