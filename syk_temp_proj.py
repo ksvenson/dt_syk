@@ -27,6 +27,7 @@ def validate_N(arg):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--N', type=validate_N, required=True, help='Total number of fermions')
+    parser.add_argument('--g', type=float, required=True, help='Coupling strength of SYK2')
     args = parser.parse_args()
 
     # MPI config
@@ -37,7 +38,7 @@ if __name__ == '__main__':
     # SYK Parameters
     N = args.N           # total number of fermions
     NA = 4               # number of fermions in subsystem
-    g = 100              # coupling to 2-body interactions
+    g = args.g           # coupling to 2-body interactions
     realizations = size  # disorder realizations
 
     # RNG config
@@ -63,7 +64,7 @@ if __name__ == '__main__':
     psi0_np = psi0.to_numpy(to_all=True)
     assert psi0_np is not None  # to silence my LSP
     dt = 1.0
-    log_tmax = 4
+    log_tmax = 5
     tau_series = dt * np.arange(0, int(10**log_tmax / dt))
     temp_note = lambda r, k: f'{H_str(r)}_psi0{psi0_str}_k{k}_dt{dt}_logtmax{log_tmax}'
     proj_note = lambda r, k: f'{temp_note(r, k)}_DA{DA}'
@@ -163,9 +164,12 @@ if __name__ == '__main__':
 
     # Final statistics and plotting
     if rank == 0:
-        import matplotlib.pyplot as plt
         assert temp_rp_2norm is not None  # to silence my LSP
         assert proj_scr_2norm is not None  # to silence my LSP
+        np.save(os.path.join(ut.CACHE_DIR, 'temp_rp_2norm_' + temp_note(realizations, k_series[-1]) + '.npy'), temp_rp_2norm)
+        np.save(os.path.join(ut.CACHE_DIR, 'proj_scr_2norm_' + proj_scr_note(realizations, k_series[-1]) + '.npy'), proj_scr_2norm)
+
+        import matplotlib.pyplot as plt
 
         tr_mean = np.mean(temp_rp_2norm, axis=0)
         tr_sem = np.std(temp_rp_2norm, ddof=1, axis=0) / np.sqrt(realizations)
