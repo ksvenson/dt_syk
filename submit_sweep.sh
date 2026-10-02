@@ -16,7 +16,7 @@ QUEUE=normal
 JOBSCRIPT=syk_job.slurm
 MANIFEST=sweep_manifest.csv
 
-N_VALUES=(16 18 20 24)
+N_VALUES=(18 20 22 24)
 G_VALUES=(0 1 10 100)
 
 # Per-N resources: "<nodes> <tasks> <walltime>".
@@ -26,8 +26,9 @@ resources_for_N() {
     case "$1" in
         16) echo "1 128 12:00:00" ;;
         18) echo "1 128 12:00:00" ;;
-        20) echo "2 128 12:00:00" ;;
-        24) echo "2 128 12:00:00" ;;
+        20) echo "1 128 12:00:00" ;;
+        22) echo "1 128 12:00:00" ;;
+        24) echo "1 128 12:00:00" ;;
         *)  return 1 ;;
     esac
 }
@@ -54,6 +55,18 @@ mkdir -p tacc_output timings
 
 tagify() { printf '%s' "$1" | tr '.-' 'pm'; }
 
+# TACC wraps sbatch with a submission filter that prints a banner and a run of
+# "--> Verifying ...OK" lines to STDOUT ahead of the job id, so --parsable is
+# not safe to capture directly: $(sbatch --parsable ...) returns the banner too,
+# and feeding that to --dependency gives "Job dependency problem". Parse instead.
+extract_jobid() {
+    local out=$1 id
+    id=$(printf '%s\n' "$out" | sed -n 's/.*Submitted batch job \([0-9][0-9]*\).*/\1/p' | tail -n1)
+    # fall back to a bare numeric line, as --parsable emits ("12345" or "12345;cluster")
+    [[ -z $id ]] && id=$(printf '%s\n' "$out" | sed -n 's/^\([0-9][0-9]*\)\(;.*\)*$/\1/p' | tail -n1)
+    printf '%s' "$id"
+}
+
 total=$(( ${#N_VALUES[@]} * ${#G_VALUES[@]} ))
 echo "sweep: ${#N_VALUES[@]} N x ${#G_VALUES[@]} g = $total jobs"
 [[ $CHAIN -eq 1 ]] && echo "       chained within each N (<= ${#N_VALUES[@]} at a time)"
@@ -78,7 +91,6 @@ for N in "${N_VALUES[@]}"; do
     for G in "${G_VALUES[@]}"; do
         TAG="N${N}_g$(tagify "$G")"
         args=(
-            --parsable
             -A "$ALLOC" -p "$QUEUE"
             -J "syk_$TAG"
             -o "tacc_output/syk_${TAG}_%j.out"
@@ -93,12 +105,17 @@ for N in "${N_VALUES[@]}"; do
             continue
         fi
 
-        jobid=$(sbatch "${args[@]}" "$JOBSCRIPT" "$N" "$G")
-        if [[ -z $jobid ]]; then
-            echo "  $TAG: SUBMISSION FAILED" >&2
+        out=$(sbatch "${args[@]}" "$JOBSCRIPT" "$N" "$G" 2>&1)
+        st=$?
+        jobid=$(extract_jobid "$out")
+        if [[ $st -ne 0 || -z $jobid ]]; then
+            echo "  $TAG: SUBMISSION FAILED (sbatch exit $st)" >&2
+            printf '%s\n' "$out" | sed 's/^/      | /' >&2
             nfail=$((nfail+1)); continue
         fi
-        dep=$jobid
+        if [[ $CHAIN -eq 1 ]]; then
+            dep=$jobid        # numeric only; anything else breaks --dependency
+        fi
         nsub=$((nsub+1))
         printf '  %-14s job %-10s %s node(s), %-4s tasks, %s\n' \
             "$TAG" "$jobid" "$NODES" "$NTASKS" "$TLIMIT"
