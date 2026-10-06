@@ -120,7 +120,7 @@ def temp_square_2norm_exact(evals, pops, k, tau_series, comm=None, chunk=2**8, v
         return partial
 
 @ut.cache('npz', 'eng_diffs')
-def eng_diffs(evals, k, bin_edges, comm=None, chunk=1024, verbose=True, note=None):
+def eng_diffs(evals, k, bin_edges, comm=None, chunk=2**10, verbose=True, note=None):
     combs = list(it.combinations(np.arange(evals.size), k))
     eng_sum = np.sum(evals[combs], axis=-1)
     local_min = np.max(evals)

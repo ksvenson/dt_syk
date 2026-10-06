@@ -46,7 +46,7 @@ def moment_constructor(k, ensemble):
 
 
 @ut.cache('npz', 'time_evolved_overlaps_and_ps_2norm')
-def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis, tau_series, k_series, DA, cond_scr_moment, chunk=2**12, verbose=False, note=None):
+def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis, tau_series, k_series, DA, cond_scr_moment, chunk=2**10, verbose=False, note=None):
     """
     This functions computes two objects:
     1. 
