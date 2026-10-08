@@ -30,6 +30,17 @@ if __name__ == '__main__':
     proj_note = lambda N, g, r, k: f'{temp_note(N, g, r, k)}_DA{DA}'
     scr_note = lambda N, g, r, k: f'{H_str(N, g, r)}_psi0{psi0_str}_k{k}_nscr{n_scr}_DA{DA}'
     proj_scr_note = lambda N, g, r, k: f'{proj_note(N, g, r, k)}_nscr{n_scr}'
+
+    p_str = '\n'.join((
+        'Parameters:',
+        rf'Hamiltonian: {H_title}',
+        f'Disorder Realizations: {realizations}',
+        f'Scrooge Samples: {n_scr}',
+        f'Base Seed: {base_seed}',
+        rf'$|\psi_0\rangle$: {psi0_str}',
+        f'dt: {dt}',
+        f'DA: {DA}'
+    ))
     
     # Initializing arrays
     temp_rp_2norm = np.empty((
@@ -58,10 +69,112 @@ if __name__ == '__main__':
     ps_sem = np.std(proj_scr_2norm, ddof=1, axis=0) / np.sqrt(realizations)
     
     # Plotting
-    fig, ax = plt.subplots(nrows=1, ncols=k_series.size, sharey=True, figsize=ut.fig_size(k_series.size, 1))
-    for N_idx, N in enumerate(N_series):
+    tr_fig, tr_ax = plt.subplots(
+        nrows=k_series.size,
+        ncols=g_series.size,
+        sharey=True,
+        figsize=ut.fig_size(g_series.size, k_series.size)
+    )
+    ps_fig, ps_ax = plt.subplots(
+        nrows=k_series.size,
+        ncols=g_series.size,
+        sharey=True,
+        figsize=ut.fig_size(g_series.size, k_series.size)
+    )
+    cp_fig, cp_ax = plt.subplots(
+        nrows=k_series.size,
+        ncols=g_series.size,
+        sharey=True,
+        figsize=ut.fig_size(g_series.size, k_series.size)
+    )
+    means = (tr_mean, ps_mean)
+    sems = (tr_sem, ps_sem)
+    axes = (tr_ax, ps_ax, cp_ax)
+    figs = (tr_fig, ps_fig, cp_fig)
+    tr_ylabel = r'||\rho_\text{Temp.}^{(k)} - \rho_\text{RP.}^{(k)}||_2'
+    ps_ylabel = r'$||\rho_\text{Proj.}^{(k)} - \sum_{z=1}^{D_B} \langle z |\sigma_B|z\rangle \rho_\text{Scr}^{(k)}(\hat{\sigma}_{A|z})||_2$'
+    for k_idx, k in enumerate(k_series):
         for g_idx, g in enumerate(g_series):
-            pass
+            for N_idx, N in enumerate(N_series):
+                m = (N_idx, g_idx, slice(None), k_idx)
+                for i in range(2):
+                    # Plotting means
+                    axes[i][k_idx, g_idx].plot(tau_series, means[i][m], label=rf'$N={N}$', color=f'C{N_idx}')
+                    # Plotting Errors
+                    axes[i].fill_between(
+                        tau_series,
+                        means[i][m] - sems[i][m],
+                        means[i][m] + sems[i][m],
+                        alpha=0.5,
+                        color=f'C{N_idx}'
+                    )
+                cp_ax[k_idx, g_idx].plot(tr_mean[m], ps_mean[m], label=rf'$N={N}$', color=f'C{N_idx}')
+            # Labels that go on every tile
+            for i in range(2):
+                axes[i][k_idx, g_idx].set(
+                    xlabel=r'$\tau$',
+                    xscale='log',
+                    yscale='log'
+                )
+                axes[i][k_idx, g_idx].legend(**ut.LEGEND_OPTIONS)
+            cp_ax[k_idx, g_idx].set(
+                xlabel=tr_ylabel,
+                xscale='log',
+                yscale='log'
+            )
+            # Column labels
+            pad = 5
+            if k_idx == 0:
+                for i in range(3):
+                    axes[i][0, g_idx].annotate(
+                        rf'$g={g}$',
+                        xy=(0.5, 1),
+                        xytext=(0, pad),
+                        xycoords='axes fraction',
+                        textcoords='offset points',
+                        size='large',
+                        ha='center',
+                        va='baseline'
+                    )
+            # Row labels
+            if g_idx == 0:
+                tr_ax[k_idx, 0].set(ylabel=tr_ylabel)
+                ps_ax[k_idx, 0].set(ylabel=ps_ylabel)
+                cp_ax[k_idx, 0].set(ylabel=ps_ylabel)
+                for i in range(3):
+                    axes[i][k_idx, 0].annotate(
+                        rf'$g={g}$',
+                        xy=(0, 0.5),
+                        xytext=(-axes[i].yaxis.labelpad - pad, 0),
+                        xycoords=axes[i].yaxis.label,
+                        textcoords='offset points',
+                        size='large',
+                        ha='right',
+                        va='center'
+                    )
+    for i in range(3):
+        figs[i].suptitle(p_str, y=1.2)
 
+    tr_fig.savefig(
+        os.path.join(
+            ut.FIG_DIR,
+            'N_g_sweep_temp_rp_2norm_' + temp_note(N_series[-1], g_series[-1], realizations, k_series[-1]) + '.png'
+        ),
+        **ut.FIG_SAVE_OPTIONS
+    )
+    ps_fig.savefig(
+        os.path.join(
+            ut.FIG_DIR,
+            'N_g_sweep_proj_scr_2norm_' + proj_scr_note(N_series[-1], g_series[-1], realizations, k_series[-1]) + '.png'
+        ),
+        **ut.FIG_SAVE_OPTIONS
+    )
+    cp_fig.savefig(
+        os.path.join(
+            ut.FIG_DIR,
+            'N_g_sweep_compare_designs' + proj_scr_note(N_series[-1], g_series[-1], realizations, k_series[-1]) + '.png'
+        ),
+        **ut.FIG_SAVE_OPTIONS
+    )
 
 
