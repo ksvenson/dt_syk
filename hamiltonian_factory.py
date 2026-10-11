@@ -47,7 +47,7 @@ def SYK_numpy(q, rng, J=1, subspace=None, note=None, require_cache=False):
 
 
 def SYK42(g, rng, J=1, subspace=None):
-    return SYK(4, rng, J=J, subspace=subspace) + (g / 4**dm.config.L) * SYK(2, rng, J=J, subspace=subspace)
+    return SYK(4, rng, J=J, subspace=subspace) + (g / (2 * dm.config.L)) * SYK(2, rng, J=J, subspace=subspace)
 
 
 @ut.cache('npy', 'SYK42_numpy_H')
