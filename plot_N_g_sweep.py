@@ -1,4 +1,6 @@
 import os
+import argparse
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -7,7 +9,65 @@ import utilities as ut
 TACC_CACHE = './tacc_cache'
 
 
+def plot_archives(paths):
+    """Plot v2 archives using their saved time axes and parameters."""
+    runs = []
+    seen = set()
+    signature = None
+    for path in paths:
+        with np.load(path, allow_pickle=False) as data:
+            params = json.loads(str(data['metadata']))
+            key = (params['N'], params['g'])
+            if key in seen:
+                raise ValueError(f'Multiple runs for {key}; choose one archive per configuration')
+            seen.add(key)
+            current = tuple(params[x] for x in ('NA', 'k_max', 'n_scr', 'seed', 'parity',
+                          'projected_sampling', 'projected_dt', 'time_seed', 'tmax'))
+            if signature is not None and current != signature:
+                raise ValueError('Archives mix different physics or projected sampling parameters')
+            signature = current
+            runs.append((params, data['tau_series'], data['k_series'],
+                         data['temp_rp_2norm'], data['proj_scr_2norm']))
+    gs = sorted(set(p['g'] for p, *_ in runs))
+    n_k = len(runs[0][2])
+    figs_axes = [plt.subplots(n_k, len(gs), squeeze=False,
+                  figsize=ut.fig_size(len(gs), n_k)) for _ in range(3)]
+    tr_label = r'$||\rho_{Temp}^{(k)}-\rho_{RP}^{(k)}||_2$'
+    ps_label = r'$\mathbb{E}_t\,||\rho_{Proj,t}^{(k)}-\rho_{Scr,cond}^{(k)}||_2$'
+    for params, times, ks, temporal, projected in sorted(runs, key=lambda x: x[0]['N']):
+        col = gs.index(params['g'])
+        tr, ps = temporal.mean(axis=0), projected.mean(axis=0)
+        for row, k in enumerate(ks):
+            for index, samples in enumerate((temporal, projected)):
+                ax = figs_axes[index][1][row, col]
+                mean = samples.mean(axis=0)[:, row]
+                sem = (samples.std(axis=0, ddof=1)[:, row]/np.sqrt(len(samples))
+                       if len(samples) > 1 else np.zeros_like(mean))
+                ax.plot(times[1:], mean[1:], label=f'N={params["N"]}, R={len(samples)}')
+                ax.fill_between(times[1:], np.maximum(mean[1:]-sem[1:], 0), mean[1:]+sem[1:], alpha=.2)
+            figs_axes[2][1][row, col].plot(tr[1:, row], ps[1:, row], label=f'N={params["N"]}')
+    os.makedirs(ut.FIG_DIR, exist_ok=True)
+    for index, (fig, axes) in enumerate(figs_axes):
+        for row in range(n_k):
+            for col, g in enumerate(gs):
+                ax = axes[row, col]
+                ax.set(xscale='log', yscale='log', title=f'k={row+1}, g={g}',
+                       xlabel=tr_label if index == 2 else r'$\tau$',
+                       ylabel=tr_label if index == 0 else ps_label)
+                ax.legend()
+        fig.tight_layout()
+        fig.savefig(os.path.join(ut.FIG_DIR, f'N_g_sweep_v2_{index}.png'), **ut.FIG_SAVE_OPTIONS)
+        plt.close(fig)
+
+
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--results', nargs='+', help='v2 results_*.npz archives; shell wildcards are supported')
+    args = parser.parse_args()
+    if args.results:
+        plot_archives(args.results)
+        raise SystemExit(0)
+    # No arguments retain the original .npy cache plotting workflow.
     # Sweep Parameters
     N_series = np.arange(16, 24+2, 2)
     g_series = np.array([0, 10, 100], dtype=float)
@@ -63,7 +123,8 @@ if __name__ == '__main__':
                 proj_scr_2norm[N_idx, g_idx] = np.load(os.path.join(TACC_CACHE, 'proj_scr_2norm_' + proj_scr_note(N, g, realizations, k_series[-1]) + '.npy'))
             except FileNotFoundError:
                 print(f'WARNING: Cache for configuration (N, g) = ({N}, {g}) not found. Omitting...')
-                temp_rp_2norm[N_idx, g_idx] = np.full(temp_rp_2norm.shape[2:], np.nan)
+                temp_rp_2norm[N_idx, g_idx] = np.nan
+                proj_scr_2norm[N_idx, g_idx] = np.nan
 
     # Statistics
     tr_mean = np.mean(temp_rp_2norm, axis=2)
@@ -176,5 +237,6 @@ if __name__ == '__main__':
         ),
         **ut.FIG_SAVE_OPTIONS
     )
+
 
 

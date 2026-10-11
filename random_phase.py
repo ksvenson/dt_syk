@@ -1,11 +1,8 @@
-import dynamite as dm
-import dynamite.states as st
 import numpy as np
 import scipy as sp
 import itertools as it
 import math
 
-import hamiltonian_factory as hf
 import linalg as la
 
 import utilities as ut
@@ -117,6 +114,9 @@ def rpe_square_2norm(pops, k):
 
 
 if __name__ == '__main__':
+    import dynamite as dm
+    import dynamite.states as st
+    import hamiltonian_factory as hf
     dm.config.L = 6
     k = 2
     
@@ -145,3 +145,4 @@ if __name__ == '__main__':
     print(rpe_square_2norm(pops, k))
 
     
+

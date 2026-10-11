@@ -43,7 +43,8 @@ def SYK(q, rng, J=1, subspace=None):
 
 @ut.cache('npy', 'SYK_numpy_H')
 def SYK_numpy(q, rng, J=1, subspace=None, note=None, require_cache=False):
-    return SYK(q, rng, J=J, subspace=subspace).to_numpy(sparse=False)
+    spaces = None if subspace is None else (subspace, subspace)
+    return SYK(q, rng, J=J, subspace=subspace).to_numpy(subspaces=spaces, sparse=False)
 
 
 def SYK42(g, rng, J=1, subspace=None):
@@ -52,5 +53,7 @@ def SYK42(g, rng, J=1, subspace=None):
 
 @ut.cache('npy', 'SYK42_numpy_H')
 def SYK42_numpy(g, rng, J=1, subspace=None, note=None, require_cache=False):
-    return SYK42(g, rng, J=J, subspace=subspace).to_numpy(sparse=False)
+    spaces = None if subspace is None else (subspace, subspace)
+    return SYK42(g, rng, J=J, subspace=subspace).to_numpy(subspaces=spaces, sparse=False)
+
 

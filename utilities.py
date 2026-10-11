@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pickle
+from functools import wraps
 from typing import Literal
 
 cache_type = Literal['npy', 'npz', 'pkl']
@@ -31,6 +32,7 @@ def cache(method: cache_type, base):
     `base`: filename for the cached output in `CACHE_DIR`.
     """
     def wrap(func):
+        @wraps(func)
         def inner(*args, **kwargs):
             fname = os.path.join(CACHE_DIR, base)
             if 'note' in kwargs:
@@ -73,4 +75,5 @@ def cache(method: cache_type, base):
             return data
         return inner
     return wrap
+
 
