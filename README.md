@@ -4,6 +4,9 @@ The production entry point is `syk_temp_proj.py`: diagonalize SYK4 + (g/N) SYK2,
 compare continuous temporal moments with exact random-phase moments, and compare
 state-conditioned projected moments with conditional Scrooge moments.
 
+See [WORKFLOW.md](WORKFLOW.md) for the physical quantities, formulas, and
+independent checks at each stage.
+
 See [README.txt](README.txt) for the existing dynamite/PETSc/SLEPc installation
 instructions and [PERFORMANCE.md](PERFORMANCE.md) for the numerical changes,
 benchmarks, sampling conventions, and cluster validation steps.

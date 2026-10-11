@@ -10,6 +10,35 @@ import numpy as np
 
 
 def syk_components(N, rng, sector='even'):
+    """Independently construct SYK4 and SYK2 matrices for verification.
+
+    Parameters
+    ----------
+    N : even integer, at least four
+        Number of Majorana operators. There are N/2 two-level sites.
+    rng : numpy.random.Generator
+        Supplies real independent Gaussian couplings, in increasing-order
+        combinations of Majorana indices. SYK4 couplings are drawn first,
+        followed by SYK2, matching the production Hamiltonian factory.
+    sector : 'even' or 'full', default 'even'
+        Restrict to computational states with an even number of occupied
+        sites, or retain the whole Hilbert space.
+
+    Returns
+    -------
+    matrices : list of two complex arrays
+        [H4,H2], without the g/N factor. For q=4 or 2 the coefficient of
+        chi_i1...chi_iq is i**(q/2)*sqrt((2/N)**(q-1)*(q-1)!/q)*J_edge,
+        with J_edge standard normal. Each Majorana squares to identity:
+        chi_2j=Z_0...Z_(j-1)X_j and chi_(2j+1)=Z_0...Z_(j-1)Y_j.
+    indices : integer array
+        Full computational-basis labels corresponding to matrix rows/columns;
+        site zero is the least significant binary digit.
+
+    This reference applies the rightmost Majorana first to every retained
+    basis ket and adds its signed amplitude to the Hamiltonian. It needs no
+    dynamite installation and is intended for tests and spectral diagnostics.
+    Matrices are dense, so large N can require substantial storage."""
     if N < 4 or N % 2 or sector not in ('even', 'full'):
         raise ValueError('Need even N and sector even/full')
     D = 2**(N//2)

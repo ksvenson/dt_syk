@@ -17,6 +17,10 @@ import utilities as ut
 
 
 def validate_N(arg):
+    """Read N as an even number of Majorana modes greater than four.
+
+    The spin representation has N/2 two-level sites, so odd N is rejected
+    rather than silently replaced by N-1. Used to validate the --N argument."""
     num = int(arg)
     if num <= 4 or num % 2:
         raise argparse.ArgumentTypeError('N must be an even number of Majoranas greater than 4')
@@ -24,6 +28,10 @@ def validate_N(arg):
 
 
 def positive_float(arg):
+    """Read a finite, strictly positive real-valued analysis parameter.
+
+    Used for time spacings and the maximum evolution time. Zero, negative
+    values, NaN, and infinity are rejected before the calculation starts."""
     value = float(arg)
     if not np.isfinite(value) or value <= 0:
         raise argparse.ArgumentTypeError('Must be finite and positive')
@@ -31,6 +39,10 @@ def positive_float(arg):
 
 
 def positive_int(arg):
+    """Read a strictly positive integer analysis parameter.
+
+    Used for sample counts, moment orders, and numbers of times handled
+    together. Invalid values are rejected before the calculation starts."""
     value = int(arg)
     if value < 1:
         raise argparse.ArgumentTypeError('Must be positive')
@@ -38,6 +50,25 @@ def positive_int(arg):
 
 
 def parse_args():
+    """Read the physical and sampling parameters for a production run.
+
+    Returns an argparse.Namespace whose fields have the names of the command
+    options, with hyphens replaced by underscores. --N and --g specify the
+    Hamiltonian; --NA fixes DA=2**(NA/2); --k-max requests orders 1 through k_max.
+    --parity even is valid for the current vacuum initial state and even-body
+    Hamiltonian. --realizations counts independent disorder realizations and
+    is independent of the number of parallel processes.
+
+    --dt sets the maximum temporal integration step; 'auto' selects it from
+    the energy spectrum after diagonalization. --projected-dt independently
+    sets the widths of intervals used to sample projected states. By default
+    one time is drawn uniformly within each interval. --time-seed changes only
+    these time draws, whereas --seed also changes disorder and Scrooge samples.
+    --check-dt repeats temporal integration at a finer step to report accuracy.
+    --n-scr sets the number of Haar inputs for each conditional Scrooge target.
+
+    Run with --help for all controls. N and NA count Majorana modes, not
+    Hilbert-space dimensions. NA must be even and no larger than N."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--N', type=validate_N, required=True)
     parser.add_argument('--g', type=float, required=True)
@@ -70,6 +101,26 @@ def parse_args():
 
 
 def plot_results(times, temporal, projected, ks, path, title):
+    """Plot disorder-averaged temporal and projected distances.
+
+    Parameters
+    ----------
+    times : real array, shape (number_of_reporting_times,)
+        The saved endpoint times; time zero is omitted from logarithmic plots.
+    temporal, projected : real arrays, shape (realizations, times, moment_orders)
+        Temporal/RP distance and running mean of per-state projected/Scrooge
+        distance, respectively, as calculated by main.
+    ks : array of integers
+        Moment order corresponding to each final array index.
+    path : str
+        Filename label appended to each figure name; not a directory path.
+    title : str
+        Figure title describing the run.
+
+    Two PNG figures are saved under utilities.FIG_DIR. Shading is the standard
+    error across disorder realizations, with zero shading for a single
+    realization. It is not a separate estimate of Scrooge or time-sampling
+    uncertainty. This function does not recompute states or moments."""
     import matplotlib.pyplot as plt
     os.makedirs(ut.FIG_DIR, exist_ok=True)
     for data, label, prefix in (
@@ -90,6 +141,36 @@ def plot_results(times, temporal, projected, ks, path, title):
 
 
 def main():
+    """Run the two ensemble comparisons for each disorder realization.
+
+    In units with hbar=1, construct H=H_SYK4+(g/N)H_SYK2 and diagonalize it in
+    even parity by default. The initial state is |0>, so its energy-basis
+    coefficients are c_alpha=<E_alpha|0> and populations p_alpha=|c_alpha|**2.
+
+    The temporal branch computes continuous-time kth-moment distances from
+    spectral overlaps using temporal_distance_continuous. The projection
+    branch constructs the conditional Scrooge target from the diagonal
+    energy ensemble, evolves full states at separate sampled times, and
+    calculates each state's projected/Scrooge distance. It then averages
+    these distances over sampled times, rather than first averaging projected
+    moments and subsequently taking one distance.
+
+    For reporting interval width Delta, the stratified mode draws one
+    independent uniform time in each interval [(j-1)Delta,jDelta). The mean
+    of the first j distances estimates the uniform time average over
+    [0,j*Delta]. Time zero is returned separately. 'grid' mode instead uses
+    the discrete mean over endpoint states, including time zero. Reporting
+    intervals may be slightly narrower than --projected-dt so --tmax is an
+    exact endpoint. Neither rule changes the continuous temporal calculation.
+
+    Independent disorder realizations are distributed across MPI processes;
+    each process diagonalizes and analyzes its own realizations. Results are
+    collected in realization order. Combined results are saved in an NPZ
+    file, with times, moment orders, parameters, and distance arrays of shape
+    (realizations, reporting_times, moment_orders). Per-realization JSON
+    files record stage times and integration diagnostics. Some expensive
+    intermediate results can be reused by their parameter-specific names.
+    Optional figures show averages and standard errors across disorder."""
     args = parse_args()
     comm = tools.MPI_COMM_WORLD().tompi4py()
     rank, size = comm.Get_rank(), comm.Get_size()

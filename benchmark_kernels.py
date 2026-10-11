@@ -11,6 +11,12 @@ import projected_funcs as pf
 
 
 def timed(function, repeats=3):
+    """Measure the time required by a supplied calculation several times.
+
+    function is called without arguments, repeats times (default three).
+    Return the shortest elapsed time in seconds and the result from the last
+    call. Taking the shortest time reduces interference from unrelated work;
+    it is not a statistical estimate of a cluster job's completion time."""
     samples = []
     result = None
     for _ in range(repeats):
@@ -21,6 +27,18 @@ def timed(function, repeats=3):
 
 
 def main():
+    """Compare original and revised calculations on reproducible test arrays.
+
+    Measures projected third moments, conditional density-matrix blocks,
+    and reconstruction of states from energy amplitudes. Each comparison
+    checks numerical agreement before reporting its time ratio. These are
+    individual calculation timings, not an estimate of the complete analysis.
+
+    If --bandwidth-N is supplied, independently construct SYK4 and SYK2 using
+    explicit Majorana actions in even parity, diagonalize their combinations
+    at g=0,1,10,100, and report the third-moment time-spacing bound. This uses
+    the production base seed and realization zero. Results are printed as JSON.
+    Use one numerical-library thread for comparison with a single MPI process."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bandwidth-N', type=int, help='Also reconstruct this SYK spectrum (e.g. 24)')
     args = parser.parse_args()

@@ -10,7 +10,28 @@ TACC_CACHE = './tacc_cache'
 
 
 def plot_archives(paths):
-    """Plot v2 archives using their saved time axes and parameters."""
+    """Compare saved production results across N and g without recomputing states.
+
+    Parameters
+    ----------
+    paths : nonempty list of paths
+        NPZ files produced by syk_temp_proj.main. Each file supplies its own
+        reporting times, moment orders, run parameters, and per-realization
+        distance arrays. Supply at most one run for each (N,g) pair.
+
+    Saved runs must agree in subsystem size, maximum moment order, Scrooge
+    sample count, disorder seed, parity choice, and projected-time sampling
+    controls. Their numbers of disorder realizations may differ. Temporal
+    integration steps may differ; their convergence should be checked before
+    interpreting differences between curves.
+
+    Three figures are saved under utilities.FIG_DIR: temporal/RP distance
+    versus time; mean per-state projected/Scrooge distance versus time; and
+    the latter plotted against the former at matching reporting times.
+    Each curve averages over disorder realizations. Shading represents only
+    the standard error across disorder, not a separate estimate of Scrooge
+    or projected-time sampling error. Time zero is omitted on logarithmic axes.
+    Duplicate configurations or incompatible run parameters raise an error."""
     runs = []
     seen = set()
     signature = None

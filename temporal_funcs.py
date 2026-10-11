@@ -34,19 +34,33 @@ def time_evolved_overlaps(H, psi0, dt, num_samples, note=None):
 
 
 def temp_square_2norm_sampled(overlaps, k_series):
-    """
-    Computes the square of the kth moment of the finite-time temporal ensemble,
-    $(\rho_{Temp.}^{(k)}(\tau))^2$, by directly sampling the ensemble.
+    """Calculate the purity of the original discrete temporal ensemble.
 
-    Parameters:
-    `overlaps` (1d array): output of `time_evolved_overlaps`. The first element must be 1.
-    `k_series` (1d array): moments of the ensemble to compute.
+    If the supplied overlaps are A(l*dt)=<psi(0)|psi(l*dt)>, the returned
+    entry at index n-1 is the purity of the uniform ensemble containing
+    n states at times 0,dt,...,(n-1)*dt:
 
-    Returns:
-    Array of shape (`overlaps.size`, `k_series.size`).
-    The first axis is the tau axis.
-    Tau can be constructed with `dt * np.arange(overlaps.size)`.
-    """
+        P_n,k = 1/n + (2/n**2) sum_{l=1}^{n-1} (n-l)|A(l*dt)|**(2k).
+
+    Parameters
+    ----------
+    overlaps : complex one-dimensional array
+        Uniformly spaced return amplitudes, with overlaps[0]=1.
+        Only their magnitudes are used, so an overall phase is irrelevant.
+    k_series : one-dimensional integer array
+        Requested moment orders, in the desired output-column order.
+
+    Returns
+    -------
+    real array, shape (len(overlaps), len(k_series))
+        Tr[(rho_discrete^(k))**2], not a moment matrix or its square.
+        The first row is one. Subtract the matching RP purity and take a
+        square root to obtain the discrete temporal/RP distance.
+
+    This is retained for the earlier regular-grid observable. The production
+    continuous-time curve uses temporal_distance_continuous instead. It is
+    a different averaging prescription at finite dt, not a different way
+    of exactly evaluating the same finite-time continuous integral."""
     assert np.abs(overlaps[0] - 1) < 10**-10
     ret = np.full((overlaps.size, k_series.size), np.nan)
     ret[0] = 1
@@ -59,21 +73,53 @@ def temp_square_2norm_sampled(overlaps, k_series):
 
 @ut.cache('npy', 'temp_square_2norm_exact_v2')
 def temp_square_2norm_exact(evals, pops, k, tau_series, comm=None, chunk=2**8, verbose=True, note=None, max_sums=2**20):
-    """
-    Computes the difference between the kth moments of the squares of finite-time
-    temporal ensemble and random phase ensemble:
-    $(\rho_{Temp.}^{(k)}(\tau))^2 - (\rho_{RP.}^{(k)})^2$.
-    Instead of sampling the ensembles, this method uses the closed-form expression (eq
-    34) in Mark et al.: https://arxiv.org/pdf/2403.11970
+    """Evaluate continuous temporal/RP squared distances by energy-sum pairs.
 
-    Parameters:
-    `evals` (1d array): all eigenvalues of the Hamiltonian.
-    `pops` (1d array): eigenspace populations of the initial state: |< psi0 | E_n >|^2
-    `k` (int): moment of the ensemble to compute
-    `tau_series` (1d array): times at which to comptue the ensemble.
-    `comm` (mpi4py communicator object): .
-    `chunk` (int): size of blocks summed over. Make smaller to reduce memory usage.
-    """
+    This is an independent small-system alternative to overlap integration.
+    A label M contains k energy indices with repetition allowed and without
+    ordering. If index alpha occurs n_alpha times, define
+
+        S_M = sum_alpha n_alpha E_alpha,
+        w_M = (k!/product_alpha n_alpha!)*product_alpha p_alpha**n_alpha.
+
+    The squared Hilbert-Schmidt distance is
+
+        2 * sum_{M<M'} w_M*w_M' * sinc((S_M-S_M')*tau/2)**2,
+
+    with sinc(x)=sin(x)/x and sinc(0)=1. Distinct labels with equal energy
+    sums are retained and can prevent the long-time distance from vanishing.
+    The ordering M<M' only ensures each pair is counted once. It does not
+    assert that their energies are unequal.
+
+    Parameters
+    ----------
+    evals, pops : real one-dimensional arrays of the same length
+        Energies and nonnegative normalized populations in their eigenbasis.
+    k : positive integer
+        Moment order.
+    tau_series : real one-dimensional array
+        Times at which to evaluate the exact finite sum. No integration grid
+        is used and these times need not be uniformly spaced.
+    comm : MPI communicator or None
+        Optional processes sharing the pair sums; their results are added.
+    chunk : positive integer, default 256
+        Number of sum labels handled together, limiting temporary storage.
+    verbose : bool
+        Print progress if True.
+    note : str or None
+        Name identifying saved results; change it whenever inputs change.
+    max_sums : integer or None, default 2**20
+        Refuse to enumerate more than this many labels. None removes the guard.
+
+    Returns
+    -------
+    real array, shape tau_series.shape
+        Tr[(rho_T^(k)-rho_RP^(k))**2], the squared distance. Take its square
+        root to compare with the 'distance' output of temporal_distance_continuous.
+
+    The sum is exact up to floating-point arithmetic, but the number of labels
+    is binomial(len(evals)+k-1,k) and the pair count is roughly its square.
+    It is unsuitable for large N even with the improved label construction."""
     partial = np.zeros(tau_series.shape)
     d = evals.size
     # Let D_k be the dimension of the symmetric subspace
@@ -125,15 +171,52 @@ def temp_square_2norm_exact(evals, pops, k, tau_series, comm=None, chunk=2**8, v
 @ut.cache('npz', 'eng_diffs_v2')
 def eng_diffs(evals, k, bin_edges, comm=None, chunk=2**10, verbose=True,
               note=None, max_sums=2**22):
-    """Histogram of unordered pairs of distinct, no-repetition k-subset sums.
+    """Count differences between distinct k-subset energy sums.
 
-    Sort sums, then count differences with vectorized binary searches, one per
-    histogram edge. This keeps numpy.histogram's last-edge inclusion convention.
-    Repeated indices within each sum remain excluded, as in the original API.
-    The minimum comes from adjacent sorted sums; distinct equal sums return 0.
-    Cost: O(M log M + bins*M log M), memory O(M), M=binomial(D,k).
-    The combination count is still prohibitive for large D and k.
-    """
+    Each sum uses k different energy indices. Two subsets that differ in
+    their indices are counted as distinct even if their sums are equal.
+    Each unordered pair of subsets is counted once; a subset compared with
+    itself is excluded. Consequently a genuine equality of distinct sums
+    contributes to the zero-difference bin and makes the minimum zero.
+
+    Parameters
+    ----------
+    evals : real one-dimensional array
+        Energy levels; their input order need not be sorted.
+    k : positive integer, at most len(evals)
+        Number of different indices in each sum. Repetition within a sum is
+        excluded here, unlike in the k-copy temporal-moment formula.
+    bin_edges : increasing real array
+        Histogram interval boundaries. Bins include their lower boundary and
+        exclude their upper boundary, except that the last upper boundary is
+        included, matching numpy.histogram. Differences are absolute values.
+    comm : MPI communicator or None
+        Optional group of processes sharing the counting work. Every process
+        constructs the same sums, and their partial histograms are added.
+    chunk : positive integer, default 1024
+        Number of sums handled together when counting; changes storage only.
+    verbose : bool
+        Print counting progress if True.
+    note : str or None
+        Name of saved results; change it for different levels, k, or bins.
+    max_sums : integer or None, default 2**22
+        Refuse to enumerate more than this many subsets. None removes the
+        guard; it does not remove the potentially very large memory demand.
+
+    Returns
+    -------
+    dict
+        'counts': integer array of length len(bin_edges)-1.
+        'min': minimum absolute difference over all distinct subset pairs,
+        regardless of the histogram range; infinity if no pair exists.
+
+    Method
+    ------
+    Sort the M=binomial(len(evals),k) sums. The minimum is then the smallest
+    difference between neighbors. For each sum and histogram boundary, locate
+    how many larger-index sums have differences below that boundary, halving
+    the remaining search interval each time. This avoids explicitly listing
+    all M*(M-1)/2 pairs, but enumerating M sums can still be impractical."""
     edges = np.asarray(bin_edges, dtype=float)
     if (k < 1 or k > len(evals) or chunk < 1 or edges.ndim != 1
             or len(edges) < 2 or np.any(np.diff(edges) <= 0)):
@@ -155,6 +238,12 @@ def eng_diffs(evals, k, bin_edges, comm=None, chunk=2**10, verbose=True,
         def bound(edge, inclusive=False):
             # Search actual differences rather than sums[i]+edge: the latter
             # can move a floating-point value across an exact histogram edge.
+            """Find the first larger-index sum beyond a difference threshold.
+
+            For each currently selected sum i, return the first j>i whose
+            difference sums[j]-sums[i] is >=edge, or >edge when inclusive=True.
+            Return M if no such j exists. This implements the histogram's
+            boundary convention using the actual floating-point differences."""
             lower = indices+1
             upper = np.full(len(indices), M, dtype=np.int64)
             while np.any(lower < upper):
@@ -180,7 +269,40 @@ def eng_diffs(evals, k, bin_edges, comm=None, chunk=2**10, verbose=True,
 
 
 def spectral_sampling_diagnostics(evals, k_max, dt):
-    """Conservative frequency bound for |sum p exp(-i E t)|^(2k)."""
+    """Check whether a regular time spacing resolves temporal-moment frequencies.
+
+    With hbar=1, the return amplitude is A(u)=sum_alpha p_alpha exp(-i E_alpha u).
+    The frequencies in |A(u)|**(2k) are differences between two sums of k
+    energies, so their absolute values cannot exceed k*W, with
+    W=max(E_alpha)-min(E_alpha). A conservative regular-sampling condition is
+    dt < pi/(k*W): at least two samples per shortest possible oscillation.
+
+    Parameters
+    ----------
+    evals : real one-dimensional array
+        Energies in the retained sector. All supplied energies are used, even
+        those with negligible population; this makes the bound conservative.
+    k_max : positive integer
+        Largest temporal moment order that will be evaluated.
+    dt : positive float
+        Proposed spacing between overlap evaluations, in the same time units
+        as exp(-i E t).
+
+    Returns
+    -------
+    dict
+        'bandwidth': W; 'moment_frequency_bound': k_max*W;
+        'nyquist_dt': pi/(k_max*W), or infinity when W=0;
+        'dt': the supplied spacing;
+        'satisfies_bound': whether dt is strictly smaller than that bound.
+
+    Notes
+    -----
+    A satisfied bound does not specify the accuracy of a numerical integral.
+    Check accuracy by repeating with a smaller step. A failed bound does not
+    by itself prove that a particular plotted feature is an artifact. This
+    criterion applies to temporal purity, not to projected moments, whose
+    conditional-state normalization can introduce additional frequencies."""
     width = float(np.ptp(evals))
     nyquist_dt = np.inf if width == 0 else np.pi/(k_max*width)
     return {'bandwidth': width, 'moment_frequency_bound': k_max*width,
@@ -190,16 +312,75 @@ def spectral_sampling_diagnostics(evals, k_max, dt):
 
 def temporal_distance_continuous(evals, pops, k_series, tau_series,
                                  dt=0.1, chunk=1024):
-    """Continuous temporal/RP Frobenius distances by streamed Simpson quadrature.
+    """Calculate continuous-time temporal/RP moment distances from overlaps.
 
-    Purity = 2/tau^2 integral_0^tau (tau-u)|<psi(0)|psi(u)>|^(2k) du.
-    Only spectral overlaps are evaluated, at O(D) per node, independently of
-    the projected-state sampling. Output times must be a uniform grid from 0.
-    dt is an upper bound: subdivisions are rounded up to hit output times.
-    This is quadrature, not an exact analytic temporal calculation. Refine dt
-    to verify convergence. RP populations need not obey a nonresonance assumption
-    for the distance identity; resonances can leave a nonzero limiting distance.
-    """
+    Define rho_T^(k)(tau) as the uniform average of
+    (|psi(t)><psi(t)|)**tensor k for 0<=t<=tau. Define rho_RP^(k) by independently
+    averaging every energy coefficient's phase, keeping its magnitude fixed.
+    This function evaluates their Hilbert-Schmidt distance without constructing
+    either large k-copy operator.
+
+    For A(u)=sum_alpha p_alpha exp(-i E_alpha u), the temporal purity is
+
+        P_T,k(tau) = (2/tau**2) integral_0^tau (tau-u)|A(u)|**(2k) du.
+
+    If P_RP,k=Tr[(rho_RP^(k))**2], then
+
+        ||rho_T^(k)(tau)-rho_RP^(k)||_HS**2 = P_T,k(tau)-P_RP,k.
+
+    The cross term Tr[rho_T^(k) rho_RP^(k)] equals P_RP,k at every time, which
+    is why subtracting one RP purity suffices. The RP purity is evaluated
+    exactly by random_phase.rpe_square_2norm. The remaining one-dimensional
+    integral is approximated by composite Simpson integration: over adjacent
+    intervals of width h, endpoint and midpoint values have weights 1,4,1,
+    multiplied by h/3. Both integral f(u) du and integral u*f(u) du are
+    accumulated so every requested reporting time uses the same overlaps.
+
+    Parameters
+    ----------
+    evals : real array, shape (number_of_energy_states,)
+        Energies E_alpha, in units with hbar=1.
+    pops : real array of the same shape
+        p_alpha=|<E_alpha|psi(0)>|**2, nonnegative and summing to one.
+    k_series : one-dimensional array of positive integers
+        Moment orders, in the desired output-column order.
+    tau_series : real one-dimensional array
+        Uniformly spaced reporting times, starting at zero, with at least
+        two entries. These are not necessarily the finer integration times.
+    dt : positive float, default 0.1
+        Upper bound on integration spacing. Each reporting interval is
+        divided into an even number of equal steps so Simpson integration
+        ends exactly at each requested time. The actual spacing h is <=dt.
+        Decreasing dt adds only overlap evaluations, not projected states.
+    chunk : positive integer, default 1024
+        Approximate maximum number of new integration points evaluated
+        together, rounded down to an even number (at least two). This limits
+        temporary storage without changing the integration grid.
+
+    Returns
+    -------
+    dict
+        'distance': real array, shape (len(tau_series), len(k_series)), containing
+        Hilbert-Schmidt distances. At tau=0 the temporal moment is the initial
+        pure-state moment and the distance is sqrt(1-P_RP,k).
+        'distance_squared': same shape, containing the computed P_T,k-P_RP,k
+        before small negative values are clipped for the square root.
+        'dt_effective': scalar NumPy array containing the actual spacing h.
+
+    Accuracy and checks
+    -------------------
+    Spectral phases are evaluated directly; Simpson integration is the
+    approximation. Compare dt with dt/2 to assess convergence. Values below
+    -1e-10 for a squared distance raise an error suggesting a smaller dt;
+    remaining negative values are replaced by zero only for 'distance'.
+    The calculation stores groups of overlaps rather than all evolved states.
+    Shifting every energy by the same constant leaves the result unchanged.
+
+    Energy degeneracies or equal sums of energies do not invalidate the
+    distance identity. They can prevent its long-time limit from vanishing:
+    equality of the continuous temporal and independent random-phase
+    ensembles requires an additional condition excluding relevant resonances.
+    No such condition is assumed here."""
     import random_phase as rp
 
     times = np.asarray(tau_series, dtype=float)
