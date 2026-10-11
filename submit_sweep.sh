@@ -16,19 +16,22 @@ QUEUE=normal
 JOBSCRIPT=syk_job.slurm
 MANIFEST=sweep_manifest.csv
 
-N_VALUES=(18 20 22 24)
+N_VALUES=(16 17 19)
 G_VALUES=(0 1 10 100)
 
 # Per-N resources: "<nodes> <tasks> <walltime>".
 # Keep <tasks> a divisor of `realizations` in syk_temp_proj.py, or the job
 # runs at the speed of whichever rank drew an extra realization.
+# These times are for `log_tmax = 5`.
 resources_for_N() {
     case "$1" in
-        16) echo "1 128 12:00:00" ;;
-        18) echo "1 128 12:00:00" ;;
-        20) echo "1 128 12:00:00" ;;
-        22) echo "1 128 12:00:00" ;;
-        24) echo "1 128 12:00:00" ;;
+        16) echo "1 128 00:30:00" ;;
+        17) echo "1 128 00:30:00" ;;
+        18) echo "1 128 00:30:00" ;;
+        19) echo "1 128 00:30:00" ;;
+        20) echo "1 128 00:30:00" ;;
+        22) echo "1 128 02:30:00" ;;
+        24) echo "1 128 05:30:00" ;;
         *)  return 1 ;;
     esac
 }
