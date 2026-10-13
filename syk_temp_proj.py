@@ -88,6 +88,7 @@ def parse_args():
     parser.add_argument('--check-dt', action='store_true', help='Also compute dt/2 and record convergence error')
     parser.add_argument('--cache-dir', default=ut.CACHE_DIR, help='Explicit intermediate/results directory; leaves utilities.CACHE_DIR unchanged')
     parser.add_argument('--no-plots', action='store_true', help='Save results and diagnostics without rendering figures')
+    parser.add_argument('--verbose', action='store_true', help='Print per-realization diagnostics from all ranks; detailed data is always saved')
     parser.add_argument('--cache-hamiltonian', action=argparse.BooleanOptionalAction, default=False,
                         help='Read/write dense H files; unnecessary when an eigensystem is saved')
     parser.add_argument('--cache-eigensystem', action=argparse.BooleanOptionalAction, default=True,
@@ -203,11 +204,18 @@ def main():
     --gap-lines adds spectral references only to temporal plots, using saved
     minimum k-sum gaps. --thermalization-fraction marks finite-window sustained
     crossings of a fraction of each initial disorder-mean distance. Neither
-    marker is assumed to be a universal equilibration time. Cached eigensystems
+    marker is assumed to be a universal equilibration time.
+    Default console output is limited to rank-zero start/completion, result
+    locations and a combined sampling warning if applicable. --verbose prints
+    per-realization details from every rank. Detailed timings, gap diagnostics,
+    integration-refinement results and warnings are always saved, irrespective
+    of verbosity. Saved analysis wall time includes computation, collection and
+    per-realization diagnostics, but excludes final archive writing and plotting. Cached eigensystems
     are checked before constructing H, and CACHE_DIR remains a static default."""
     args = parse_args()
     comm = tools.MPI_COMM_WORLD().tompi4py()
     rank, size = comm.Get_rank(), comm.Get_size()
+    run_started = perf_counter()
     cache_dir = args.cache_dir
     os.makedirs(cache_dir, exist_ok=True)
     dm.config.L = args.N//2
@@ -235,6 +243,7 @@ def main():
     local_ps = np.empty_like(local_tr)
     local_gaps = np.full((len(tasks), len(ks)), np.nan)
     local_gap_times = np.full_like(local_gaps, np.nan)
+    local_sampling_warnings = np.zeros(len(tasks), dtype=np.int64)
     if rank == 0:
         print(f'{args.realizations} realizations on {size} ranks; sector dimension {dimension}; '
               f'{n_intervals} projected strata; temporal dt={args.dt}', flush=True)
@@ -262,11 +271,17 @@ def main():
         max_dt = tf.spectral_sampling_diagnostics(evals, args.k_max, 1.)['nyquist_dt']
         dt = min(.1, .5*max_dt) if args.dt == 'auto' else args.dt
         diagnostics = tf.spectral_sampling_diagnostics(evals, args.k_max, dt)
-        print(f'Rank {rank}, realization {r}: bandwidth={diagnostics["bandwidth"]:.6g}, '
-              f'Nyquist bound dt<{max_dt:.6g}, using dt<={dt:.6g}', flush=True)
+        diagnostics['warnings'] = []
+        if args.verbose:
+            print(f'Rank {rank}, realization {r}: bandwidth={diagnostics["bandwidth"]:.6g}, '
+                  f'Nyquist bound dt<{max_dt:.6g}, using dt<={dt:.6g}', flush=True)
         if dt >= max_dt:
-            print(f'WARNING: rank {rank}: temporal grid exceeds conservative moment-frequency bound; '
-                  'use --dt auto or verify with --check-dt', flush=True)
+            warning = ('Temporal grid exceeds the conservative moment-frequency bound; '
+                       'use --dt auto or verify with --check-dt')
+            diagnostics['warnings'].append(warning)
+            local_sampling_warnings[i] = 1
+            if args.verbose:
+                print(f'WARNING: rank {rank}, realization {r}: {warning}', flush=True)
         temporal = tf.temporal_distance_continuous(evals, pops, ks, times, dt=dt)
         local_tr[i] = temporal['distance']
         diagnostics['dt_effective'] = float(temporal['dt_effective'])
@@ -282,7 +297,8 @@ def main():
                 temporal['distance_squared']-refined['distance_squared']), axis=0).tolist()
             diagnostics['dt_half_max_distance_error'] = np.max(np.abs(
                 temporal['distance']-refined['distance']), axis=0).tolist()
-            print(f'Rank {rank}, dt refinement: {diagnostics["dt_half_max_distance_error"]}', flush=True)
+            if args.verbose:
+                print(f'Rank {rank}, dt refinement: {diagnostics["dt_half_max_distance_error"]}', flush=True)
         gap_start = perf_counter()
         diagnostics['moment_gaps'] = []
         occupied = evals[pops > 0]  # omit only exactly zero populations
@@ -295,7 +311,8 @@ def main():
                     local_gaps[i, j] = gap['min_gap']
                 if gap['reference_time'] is not None:
                     local_gap_times[i, j] = gap['reference_time']
-                print(f'Rank {rank}, k={k} gap diagnostic: {gap}', flush=True)
+                if args.verbose:
+                    print(f'Rank {rank}, k={k} gap diagnostic: {gap}', flush=True)
         t3 = perf_counter()
         target = pf.cond_scr_moment(evecs, pops, args.n_scr, ks, DA, rng(1),
                     note=scr_note, basis_indices=indices, full_dimension=D, symmetric=True, cache_dir=cache_dir)
@@ -325,8 +342,9 @@ def main():
                   'sampling_diagnostics': diagnostics}
         with open(os.path.join(cache_dir, f'timing_{run_note}_r{r}.json'), 'w') as f:
             json.dump(timing, f, indent=2)
-        print(f'Rank {rank}, realization {r}: timings {timing["total_seconds"]:.1f}s total, '
-              f'{timing["projected_seconds"]:.1f}s projected', flush=True)
+        if args.verbose:
+            print(f'Rank {rank}, realization {r}: timings {timing["total_seconds"]:.1f}s total, '
+                  f'{timing["projected_seconds"]:.1f}s projected', flush=True)
     # Gather contiguous rank blocks, then restore disorder-realization order.
     counts = np.array([len(x) for x in task_alloc])*len(times)*len(ks)
     offsets = np.r_[0, np.cumsum(counts[:-1])]
@@ -340,10 +358,17 @@ def main():
     gap_times = np.empty_like(gaps) if rank == 0 else None
     comm.Gatherv(local_gaps, [gaps, (gap_counts, gap_offsets)] if rank == 0 else None, root=0)
     comm.Gatherv(local_gap_times, [gap_times, (gap_counts, gap_offsets)] if rank == 0 else None, root=0)
+    realization_counts = np.array([len(x) for x in task_alloc])
+    realization_offsets = np.r_[0, np.cumsum(realization_counts[:-1])]
+    sampling_warnings = np.empty(args.realizations, dtype=np.int64) if rank == 0 else None
+    comm.Gatherv(local_sampling_warnings,
+                 [sampling_warnings, (realization_counts, realization_offsets)] if rank == 0 else None, root=0)
     if rank == 0:
         order = np.argsort(np.concatenate(task_alloc))
         temporal, projected = temporal[order], projected[order]
         gaps, gap_times = gaps[order], gap_times[order]
+        sampling_warnings = sampling_warnings[order]
+        analysis_wall_seconds = perf_counter()-run_started
         result_path = os.path.join(cache_dir, 'results_'+run_note+'.npz')
         def observed_times(data):
             """Threshold endpoints for disorder-mean curves; NaN denotes no crossing."""
@@ -355,10 +380,17 @@ def main():
         np.savez(result_path, tau_series=times, k_series=ks,
                  temp_rp_2norm=temporal, proj_scr_2norm=projected,
                  moment_min_gaps=gaps, moment_gap_times=gap_times,
+                 sampling_bound_warnings=sampling_warnings,
+                 analysis_wall_seconds=np.array(analysis_wall_seconds),
                  temporal_threshold_times=observed_times(temporal),
                  projected_threshold_times=observed_times(projected),
                  metadata=np.array(json.dumps(vars(args))))
+        print(f'Analysis complete: {args.realizations} realizations in {analysis_wall_seconds:.1f}s', flush=True)
+        if sampling_warnings.any():
+            print(f'WARNING: {int(sampling_warnings.sum())}/{args.realizations} realizations exceed the '
+                  'temporal sampling bound; see saved diagnostics.', flush=True)
         print(f'Results saved: {result_path}', flush=True)
+        print(f'Detailed timings and diagnostics: {os.path.join(cache_dir, "timing_"+run_note+"_r*.json")}', flush=True)
         if not args.no_plots:
             plot_results(times, temporal, projected, ks, run_note,
                          f'SYK42 N={args.N}, g={args.g}, R={args.realizations}, parity={args.parity}',

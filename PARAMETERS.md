@@ -29,6 +29,7 @@ vacuum product state; this is fixed, not a command-line parameter.
 | `--gap-max-sums` | 5000000 | Skip an order if its number of k-sums exceeds this cap |
 | `--gap-lines` | Off | Plot resolved, in-window median inverse-gap references on temporal curves |
 | `--thermalization-fraction` | None | Mark and save observed crossings below a chosen fraction of each initial disorder-mean distance |
+| `--verbose` | Off | Print per-realization details from all ranks; otherwise only rank-zero run summary and warnings |
 | `--no-plots` | Off | Save results/diagnostics without rendering figures |
 | `--help` | — | Print usage, descriptions and defaults |
 
@@ -153,3 +154,22 @@ python plot_N_g_sweep.py --results tacc_cache/results*.npz \
 Archived annotation settings are used unless a fraction is overridden. Archives
 without spectral diagnostics still plot normally. See WORKFLOW.md for the
 quantities represented by the two curves.
+
+
+## Console output and saved diagnostics
+
+Default output consists of a rank-zero startup line, completion time, result
+archive location, and the per-realization diagnostic-file pattern. If any
+realization exceeds the conservative temporal sampling bound, rank zero prints
+one combined warning. No per-rank gap dictionaries or refinement arrays are
+printed by default. `--verbose` restores those details from each rank.
+
+Every completed realization writes `timing_<run parameters>_r<index>.json`,
+containing stage durations, eigensystem-cache status, run parameters, bandwidth,
+sampling bound, effective integration step, energy spread, short-time overlap
+widths, gap values/statuses, warnings, and refinement errors when requested.
+Verbosity never controls whether these files are written. The result NPZ also
+records warning flags per realization and analysis wall time, in addition to
+curves, reporting axes, gap references, threshold times and parameters. Analysis
+wall time excludes final archive writing and plotting; the Slurm timing CSV
+continues to record the complete launcher duration, including plotting.

@@ -52,17 +52,31 @@ class DriverTests(unittest.TestCase):
                     '--tmax', '4', '--n-scr', '8', '--cache-dir', directory, '--no-plots',
                     '--gap-k-max', '3', '--gap-max-sums', '50', '--gap-lines',
                     '--thermalization-fraction', '.5', '--check-dt']
-            with mock.patch.object(sys, 'argv', argv), mock.patch('builtins.print'):
+            with mock.patch.object(sys, 'argv', argv), mock.patch('builtins.print') as console:
                 driver.main()
+                self.assertEqual(console.call_count, 4)
+                output = '\n'.join(str(call.args[0]) for call in console.call_args_list)
+                self.assertNotIn('gap diagnostic:', output)
+                self.assertNotIn('dt refinement:', output)
+                self.assertIn('Analysis complete:', output)
+                self.assertIn('Detailed timings and diagnostics:', output)
                 archive = next(Path(directory).glob('results_*.npz'))
                 with np.load(archive) as data:
                     first = data['temp_rp_2norm'].copy()
                     self.assertEqual(data['moment_min_gaps'].shape, (2, 3))
                     self.assertTrue(np.isnan(data['moment_gap_times'][:, 2]).all())
                     self.assertEqual(data['temporal_threshold_times'].shape, (3,))
+                    assert_allclose(data['sampling_bound_warnings'], 0)
+                    self.assertGreater(float(data['analysis_wall_seconds']), 0)
                 driver.main()
                 with np.load(archive) as data:
                     assert_allclose(data['temp_rp_2norm'], first, atol=0)
+                console.reset_mock()
+                with mock.patch.object(sys, 'argv', argv+['--verbose']):
+                    driver.main()
+                verbose_output = '\n'.join(str(call.args[0]) for call in console.call_args_list)
+                self.assertIn('gap diagnostic:', verbose_output)
+                self.assertIn('dt refinement:', verbose_output)
             self.assertEqual(len(calls), 2)  # Two realizations, zero additional H builds.
             self.assertFalse(list(Path(directory).glob('SYK42_numpy_H*')))
             self.assertFalse(list(Path(directory).glob('time_evolved_overlaps*')))
@@ -71,6 +85,9 @@ class DriverTests(unittest.TestCase):
                 timing = json.loads(path.read_text())
                 self.assertTrue(timing['eigensystem_cache_hit'])
                 self.assertIn('gap_seconds', timing)
+                self.assertIn('dt_half_max_distance_error', timing['sampling_diagnostics'])
+                self.assertIn('moment_gaps', timing['sampling_diagnostics'])
+                self.assertIn('warnings', timing['sampling_diagnostics'])
             if importlib.util.find_spec('matplotlib') is not None:
                 import matplotlib
                 matplotlib.use('Agg')
