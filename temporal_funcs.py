@@ -71,7 +71,7 @@ def temp_square_2norm_sampled(overlaps, k_series):
     ret[1:] = (1 + 2*t1) / (helper+1) - 2*t2 / (helper+1)**2
     return ret
 
-@ut.cache('npy', 'temp_square_2norm_exact_v2')
+@ut.cache('npy', 'temp_square_2norm_exact')
 def temp_square_2norm_exact(evals, pops, k, tau_series, comm=None, chunk=2**8, verbose=True, note=None, max_sums=2**20):
     """Evaluate continuous temporal/RP squared distances by energy-sum pairs.
 
@@ -168,7 +168,7 @@ def temp_square_2norm_exact(evals, pops, k, tau_series, comm=None, chunk=2**8, v
     else:
         return partial
 
-@ut.cache('npz', 'eng_diffs_v2')
+@ut.cache('npz', 'eng_diffs')
 def eng_diffs(evals, k, bin_edges, comm=None, chunk=2**10, verbose=True,
               note=None, max_sums=2**22):
     """Count differences between distinct k-subset energy sums.

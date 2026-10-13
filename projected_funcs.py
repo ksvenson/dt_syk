@@ -49,7 +49,7 @@ def moment_constructor(k, ensemble):
     raise ValueError('Unknown ensemble: ' + ensemble)
 
 
-@lru_cache(None)
+@lru_cache(maxsize=32)
 def symmetric_basis(DA, k):
     """Label an orthonormal basis for k identical copies of subsystem A.
 
@@ -92,10 +92,12 @@ def symmetric_basis(DA, k):
             math.factorial(c) for c in np.bincount(t, minlength=DA)))
         for t in tuples
     ])
+    tuples.setflags(write=False)
+    factors.setflags(write=False)
     return tuples, factors
 
 
-@lru_cache(None)
+@lru_cache(maxsize=8)
 def symmetric_isometry(DA, k):
     """Express symmetric-subspace basis vectors in the full product basis.
 
@@ -131,6 +133,7 @@ def symmetric_isometry(DA, k):
     for j, t in enumerate(tuples):
         for p in set(it.permutations(t)):
             embedding[np.ravel_multi_index(p, (DA,)*k), j] = 1/factors[j]
+    embedding.setflags(write=False)
     return embedding
 
 
@@ -322,7 +325,7 @@ def conditional_covariances(evecs, pops, DA, basis_indices=None,
     return result
 
 
-@ut.cache('npz', 'time_evolved_overlaps_and_ps_2norm_v2')
+@ut.cache('npz', 'time_evolved_overlaps_and_ps_2norm')
 def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis,
         tau_series, k_series, DA, cond_scr_moment, chunk=32, verbose=False,
         note=None, basis_indices=None, full_dimension=None, symmetric=False):
@@ -417,7 +420,7 @@ def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis,
     return ret
 
 
-@ut.cache('npz', 'cond_scr_moment_v2')
+@ut.cache('npz', 'cond_scr_moment')
 def cond_scr_moment(evecs, pops, n_scr, k_series, DA, rng, note=None,
                     basis_indices=None, full_dimension=None, symmetric=False,
                     bath_chunk=32):

@@ -4,6 +4,9 @@ The production entry point is `syk_temp_proj.py`: diagonalize SYK4 + (g/N) SYK2,
 compare continuous temporal moments with exact random-phase moments, and compare
 state-conditioned projected moments with conditional Scrooge moments.
 
+See [PARAMETERS.md](PARAMETERS.md) for every command-line option, sampling
+behavior, cache policy, and plot timescale diagnostics.
+
 See [WORKFLOW.md](WORKFLOW.md) for the physical quantities, formulas, and
 independent checks at each stage.
 
@@ -22,8 +25,8 @@ sbatch -t 48:00:00 syk_job.slurm 24 10 --dt auto --projected-dt 1
 OPENBLAS_NUM_THREADS=1 python -m unittest discover -s tests -v
 OPENBLAS_NUM_THREADS=1 python benchmark_kernels.py --bandwidth-N 24
 
-# Plot saved v2 sweep archives using their stored time axes
-python plot_N_g_sweep.py --results tacc_cache/results_v2*.npz
+# Plot saved sweep archives using their stored time axes
+python plot_N_g_sweep.py --results tacc_cache/results*.npz
 ```
 
 N counts Majoranas and must be even. The initial state is the vacuum product

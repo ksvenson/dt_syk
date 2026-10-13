@@ -14,6 +14,7 @@ import hamiltonian_factory as hf
 import temporal_funcs as tf
 import projected_funcs as pf
 import utilities as ut
+import thermalization as th
 
 
 def validate_N(arg):
@@ -69,24 +70,38 @@ def parse_args():
 
     Run with --help for all controls. N and NA count Majorana modes, not
     Hilbert-space dimensions. NA must be even and no larger than N."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--N', type=validate_N, required=True)
-    parser.add_argument('--g', type=float, required=True)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--N', type=validate_N, required=True, help='Even number of Majorana modes')
+    parser.add_argument('--g', type=float, required=True, help='Coefficient g in H4+(g/N)H2')
     parser.add_argument('--dt', default='auto', help='Temporal quadrature max step: auto or a positive number')
     parser.add_argument('--projected-dt', type=positive_float, default=1., help='Projected stratum width; independent of --dt')
-    parser.add_argument('--projected-sampling', choices=('stratified', 'grid'), default='stratified')
-    parser.add_argument('--tmax', type=positive_float, default=1e5)
-    parser.add_argument('--parity', choices=('even', 'full'), default='even')
+    parser.add_argument('--projected-sampling', choices=('stratified', 'grid'), default='stratified', help='stratified: one uniform random time per interval; grid: regular endpoints including zero')
+    parser.add_argument('--tmax', type=positive_float, default=1e5, help='Maximum evolution/reporting time, hbar=1')
+    parser.add_argument('--parity', choices=('even', 'full'), default='even', help='Eigenvector basis; even is valid for the vacuum initial state')
     parser.add_argument('--realizations', type=positive_int, default=128, help='Independent of MPI rank count')
-    parser.add_argument('--n-scr', type=positive_int, default=1000)
-    parser.add_argument('--k-max', type=positive_int, default=3)
-    parser.add_argument('--NA', type=positive_int, default=4)
+    parser.add_argument('--n-scr', type=positive_int, default=1000, help='Haar inputs for higher Scrooge moments; k=1 is exact')
+    parser.add_argument('--k-max', type=positive_int, default=3, help='Calculate moment orders 1 through this value')
+    parser.add_argument('--NA', type=positive_int, default=4, help='Even subsystem Majorana count; DA=2**(NA/2)')
     parser.add_argument('--chunk', type=positive_int, default=32, help='Projected time batch size')
-    parser.add_argument('--seed', type=int, default=628**3)
+    parser.add_argument('--seed', type=int, default=628**3, help='Base seed for disorder, Haar states and time sampling')
     parser.add_argument('--time-seed', type=int, default=0, help='Independent stratified sampling replicate')
     parser.add_argument('--check-dt', action='store_true', help='Also compute dt/2 and record convergence error')
-    parser.add_argument('--cache-dir', default=ut.CACHE_DIR)
-    parser.add_argument('--no-plots', action='store_true')
+    parser.add_argument('--cache-dir', default=ut.CACHE_DIR, help='Explicit intermediate/results directory; leaves utilities.CACHE_DIR unchanged')
+    parser.add_argument('--no-plots', action='store_true', help='Save results and diagnostics without rendering figures')
+    parser.add_argument('--cache-hamiltonian', action=argparse.BooleanOptionalAction, default=False,
+                        help='Read/write dense H files; unnecessary when an eigensystem is saved')
+    parser.add_argument('--cache-eigensystem', action=argparse.BooleanOptionalAction, default=True,
+                        help='Read/write eigenvalues and eigenvectors for repeat analysis')
+    parser.add_argument('--cache-projected', action=argparse.BooleanOptionalAction, default=False,
+                        help='Save per-state projected intermediate arrays in addition to final results')
+    parser.add_argument('--gap-k-max', type=int, default=1,
+                        help='Exact spectral gap diagnostics through this order; 0 disables; capped by gap-max-sums')
+    parser.add_argument('--gap-max-sums', type=positive_int, default=5_000_000,
+                        help='Maximum number of k-sums to enumerate for each gap diagnostic')
+    parser.add_argument('--gap-lines', action='store_true',
+                        help='Show in-window median 2*pi/minimum-gap references on temporal plots')
+    parser.add_argument('--thermalization-fraction', type=positive_float, default=None,
+                        help='Mark sustained finite-window crossings below this fraction of the initial mean distance (0<f<1)')
     args = parser.parse_args()
     if args.NA % 2 or args.NA > args.N:
         parser.error('NA must be even and no larger than N')
@@ -97,10 +112,14 @@ def parse_args():
             args.dt = positive_float(args.dt)
         except (ValueError, argparse.ArgumentTypeError):
             parser.error('--dt must be auto or a finite positive number')
+    if args.gap_k_max < 0:
+        parser.error('--gap-k-max must be nonnegative')
+    if args.thermalization_fraction is not None and args.thermalization_fraction >= 1:
+        parser.error('--thermalization-fraction must be smaller than one')
     return args
 
 
-def plot_results(times, temporal, projected, ks, path, title):
+def plot_results(times, temporal, projected, ks, path, title, gap_times=None, fraction=None):
     """Plot disorder-averaged temporal and projected distances.
 
     Parameters
@@ -116,6 +135,13 @@ def plot_results(times, temporal, projected, ks, path, title):
         Filename label appended to each figure name; not a directory path.
     title : str
         Figure title describing the run.
+    gap_times : array, shape (realizations, moment_orders), or None
+        Resolved spectral reference times 2*pi/minimum k-sum gap. The temporal
+        plot can show their finite median; skipped/unresolved entries are NaN.
+        These reference lines are not predictions of the projected timescale.
+    fraction : float in (0,1), or None
+        If supplied, mark observed sustained crossings below this fraction
+        of the initial mean distance, separately for each curve.
 
     Two PNG figures are saved under utilities.FIG_DIR. Shading is the standard
     error across disorder realizations, with zero shading for a single
@@ -133,6 +159,9 @@ def plot_results(times, temporal, projected, ks, path, title):
         for j, k in enumerate(ks):
             ax.plot(times[1:], mean[1:, j], label=f'k={k}')
             ax.fill_between(times[1:], np.maximum(mean[1:, j]-sem[1:, j], 0), mean[1:, j]+sem[1:, j], alpha=.3)
+        th.annotate_timescales(ax, times, mean, ks,
+                              gap_times=gap_times if prefix == 'temp_rp_2norm' else None,
+                              fraction=fraction)
         ax.set(xlabel=r'$\tau$', ylabel=label, xscale='log', yscale='log')
         ax.legend()
         fig.suptitle(title)
@@ -170,12 +199,17 @@ def main():
     (realizations, reporting_times, moment_orders). Per-realization JSON
     files record stage times and integration diagnostics. Some expensive
     intermediate results can be reused by their parameter-specific names.
-    Optional figures show averages and standard errors across disorder."""
+    Optional figures show averages and standard errors across disorder.
+    --gap-lines adds spectral references only to temporal plots, using saved
+    minimum k-sum gaps. --thermalization-fraction marks finite-window sustained
+    crossings of a fraction of each initial disorder-mean distance. Neither
+    marker is assumed to be a universal equilibration time. Cached eigensystems
+    are checked before constructing H, and CACHE_DIR remains a static default."""
     args = parse_args()
     comm = tools.MPI_COMM_WORLD().tompi4py()
     rank, size = comm.Get_rank(), comm.Get_size()
-    ut.CACHE_DIR = args.cache_dir
-    os.makedirs(ut.CACHE_DIR, exist_ok=True)
+    cache_dir = args.cache_dir
+    os.makedirs(cache_dir, exist_ok=True)
     dm.config.L = args.N//2
     D, DA = 2**dm.config.L, 2**(args.NA//2)
     subspace = ss.Parity('even', L=dm.config.L) if args.parity == 'even' else None
@@ -189,26 +223,38 @@ def main():
     n_intervals = max(1, int(np.ceil(args.tmax/args.projected_dt)))
     times = np.linspace(0, args.tmax, n_intervals+1)
     width = times[1]
-    run_note = (f'v2_N{args.N}_g{args.g}_parity{args.parity}_seed{args.seed}'
+    run_note = (f'N{args.N}_g{args.g}_parity{args.parity}_seed{args.seed}'
                 f'_R{args.realizations}_DA{DA}_k{args.k_max}_T{args.tmax}'
                 f'_dt{args.dt}_pdt{args.projected_dt}_ps{args.projected_sampling}'
-                f'_ts{args.time_seed}_scr{args.n_scr}_check{int(args.check_dt)}')
+                f'_ts{args.time_seed}_scr{args.n_scr}_check{int(args.check_dt)}'
+                f'_gap{args.gap_k_max}_gcap{args.gap_max_sums}'
+                f'_fraction{args.thermalization_fraction}')
     task_alloc = [np.arange(i, args.realizations, size) for i in range(size)]
     tasks = task_alloc[rank]
     local_tr = np.empty((len(tasks), len(times), len(ks)))
     local_ps = np.empty_like(local_tr)
+    local_gaps = np.full((len(tasks), len(ks)), np.nan)
+    local_gap_times = np.full_like(local_gaps, np.nan)
     if rank == 0:
         print(f'{args.realizations} realizations on {size} ranks; sector dimension {dimension}; '
               f'{n_intervals} projected strata; temporal dt={args.dt}', flush=True)
     for i, r in enumerate(tasks):
         rng = lambda stream: np.random.default_rng(np.random.SeedSequence(args.seed, spawn_key=(int(r), stream)))
         h_note = f'SYK42_N{args.N}_g{args.g}_base-seed{args.seed}_r{r}_parity{args.parity}'
-        scr_note = f'{h_note}_psi00_DA{DA}_scr{args.n_scr}_k{args.k_max}_sym_v2'
+        scr_note = f'{h_note}_psi00_DA{DA}_scr{args.n_scr}_k{args.k_max}_sym'
         t0 = perf_counter()
-        H = hf.SYK42_numpy(args.g, rng(0), subspace=subspace, note=h_note)
-        t1 = perf_counter()
-        eigs = la.eig_system(H, note=h_note)
-        del H
+        eig_hit = args.cache_eigensystem and la.eig_system.cache_exists(note=h_note, cache_dir=cache_dir)
+        if eig_hit:
+            # The eigensystem is all the analysis needs; no H is loaded or built.
+            t1 = perf_counter()
+            eigs = la.eig_system(None, note=h_note, cache_dir=cache_dir, require_cache=True)
+        else:
+            H = hf.SYK42_numpy(args.g, rng(0), subspace=subspace, note=h_note,
+                              cache_dir=cache_dir, cache_enabled=args.cache_hamiltonian)
+            t1 = perf_counter()
+            eigs = la.eig_system(H, note=h_note, cache_dir=cache_dir,
+                                 cache_enabled=args.cache_eigensystem)
+            del H
         t2 = perf_counter()
         evals, evecs = eigs['evals'], eigs['evecs']
         coefficients = evecs.conj().T @ psi0
@@ -224,6 +270,12 @@ def main():
         temporal = tf.temporal_distance_continuous(evals, pops, ks, times, dt=dt)
         local_tr[i] = temporal['distance']
         diagnostics['dt_effective'] = float(temporal['dt_effective'])
+        centered_energies = evals-evals[0]
+        mean_energy = float(pops @ centered_energies)
+        energy_variance = float(pops @ (centered_energies-mean_energy)**2)
+        diagnostics['energy_standard_deviation'] = float(np.sqrt(energy_variance))
+        diagnostics['short_time_overlap_widths'] = [
+            float(1/np.sqrt(k*energy_variance)) if energy_variance > 0 else None for k in ks]
         if args.check_dt:
             refined = tf.temporal_distance_continuous(evals, pops, ks, times, dt=dt/2)
             diagnostics['dt_half_max_squared_error'] = np.max(np.abs(
@@ -231,9 +283,22 @@ def main():
             diagnostics['dt_half_max_distance_error'] = np.max(np.abs(
                 temporal['distance']-refined['distance']), axis=0).tolist()
             print(f'Rank {rank}, dt refinement: {diagnostics["dt_half_max_distance_error"]}', flush=True)
+        gap_start = perf_counter()
+        diagnostics['moment_gaps'] = []
+        occupied = evals[pops > 0]  # omit only exactly zero populations
+        for j, k in enumerate(ks):
+            if k <= args.gap_k_max:
+                gap = th.minimum_moment_gap(occupied, int(k), args.gap_max_sums)
+                gap['k'] = int(k)
+                diagnostics['moment_gaps'].append(gap)
+                if gap['min_gap'] is not None:
+                    local_gaps[i, j] = gap['min_gap']
+                if gap['reference_time'] is not None:
+                    local_gap_times[i, j] = gap['reference_time']
+                print(f'Rank {rank}, k={k} gap diagnostic: {gap}', flush=True)
         t3 = perf_counter()
         target = pf.cond_scr_moment(evecs, pops, args.n_scr, ks, DA, rng(1),
-                    note=scr_note, basis_indices=indices, full_dimension=D, symmetric=True)
+                    note=scr_note, basis_indices=indices, full_dimension=D, symmetric=True, cache_dir=cache_dir)
         t4 = perf_counter()
         sample_times = times.copy()
         if args.projected_sampling == 'stratified':
@@ -243,7 +308,8 @@ def main():
         sampled = pf.time_evolved_overlaps_and_ps_2norm(
             evals, evecs, coefficients, sample_times, ks, DA, target,
             chunk=args.chunk, note=f'{run_note}_r{r}', basis_indices=indices,
-            full_dimension=D, symmetric=True)
+            full_dimension=D, symmetric=True, cache_dir=cache_dir,
+            cache_enabled=args.cache_projected)
         distances = sampled['2norm']
         if args.projected_sampling == 'stratified':
             local_ps[i, 0] = distances[0]
@@ -253,11 +319,11 @@ def main():
             local_ps[i] = np.cumsum(distances, axis=0)/np.arange(1, len(times)+1)[:, None]
         t5 = perf_counter()
         timing = {'hamiltonian_seconds': t1-t0, 'diagonalization_seconds': t2-t1,
-                  'temporal_seconds': t3-t2, 'scrooge_seconds': t4-t3,
+                  'temporal_seconds': gap_start-t2, 'gap_seconds': t3-gap_start, 'scrooge_seconds': t4-t3,
                   'projected_seconds': t5-t4, 'total_seconds': t5-t0,
-                  'rank': rank, 'realization': int(r), 'parameters': vars(args),
+                  'eigensystem_cache_hit': eig_hit, 'rank': rank, 'realization': int(r), 'parameters': vars(args),
                   'sampling_diagnostics': diagnostics}
-        with open(os.path.join(ut.CACHE_DIR, f'timing_{run_note}_r{r}.json'), 'w') as f:
+        with open(os.path.join(cache_dir, f'timing_{run_note}_r{r}.json'), 'w') as f:
             json.dump(timing, f, indent=2)
         print(f'Rank {rank}, realization {r}: timings {timing["total_seconds"]:.1f}s total, '
               f'{timing["projected_seconds"]:.1f}s projected', flush=True)
@@ -268,17 +334,36 @@ def main():
     projected = np.empty_like(temporal) if rank == 0 else None
     comm.Gatherv(local_tr, [temporal, (counts, offsets)] if rank == 0 else None, root=0)
     comm.Gatherv(local_ps, [projected, (counts, offsets)] if rank == 0 else None, root=0)
+    gap_counts = np.array([len(x) for x in task_alloc])*len(ks)
+    gap_offsets = np.r_[0, np.cumsum(gap_counts[:-1])]
+    gaps = np.empty((args.realizations, len(ks))) if rank == 0 else None
+    gap_times = np.empty_like(gaps) if rank == 0 else None
+    comm.Gatherv(local_gaps, [gaps, (gap_counts, gap_offsets)] if rank == 0 else None, root=0)
+    comm.Gatherv(local_gap_times, [gap_times, (gap_counts, gap_offsets)] if rank == 0 else None, root=0)
     if rank == 0:
         order = np.argsort(np.concatenate(task_alloc))
         temporal, projected = temporal[order], projected[order]
-        result_path = os.path.join(ut.CACHE_DIR, 'results_'+run_note+'.npz')
+        gaps, gap_times = gaps[order], gap_times[order]
+        result_path = os.path.join(cache_dir, 'results_'+run_note+'.npz')
+        def observed_times(data):
+            """Threshold endpoints for disorder-mean curves; NaN denotes no crossing."""
+            if args.thermalization_fraction is None:
+                return np.full(len(ks), np.nan)
+            mean = data.mean(axis=0)
+            return np.array([np.nan if (t := th.threshold_time(times, mean[:, j],
+                args.thermalization_fraction)) is None else t for j in range(len(ks))])
         np.savez(result_path, tau_series=times, k_series=ks,
                  temp_rp_2norm=temporal, proj_scr_2norm=projected,
+                 moment_min_gaps=gaps, moment_gap_times=gap_times,
+                 temporal_threshold_times=observed_times(temporal),
+                 projected_threshold_times=observed_times(projected),
                  metadata=np.array(json.dumps(vars(args))))
         print(f'Results saved: {result_path}', flush=True)
         if not args.no_plots:
             plot_results(times, temporal, projected, ks, run_note,
-                         f'SYK42 N={args.N}, g={args.g}, R={args.realizations}, parity={args.parity}')
+                         f'SYK42 N={args.N}, g={args.g}, R={args.realizations}, parity={args.parity}',
+                         gap_times=gap_times if args.gap_lines else None,
+                         fraction=args.thermalization_fraction)
 
 
 if __name__ == '__main__':

@@ -97,8 +97,9 @@ the temporal curve remains a continuous quadrature estimate in either mode.
    to realization order. This enables fair comparisons between MPI allocations.
 9. Per-realization stage timings and sampling diagnostics are saved as JSON;
    the combined NPZ contains time axes, moment orders, parameters, and both
-   distances. Cache names distinguish parity, sampling, and algorithm versions.
-   Changed algorithms do not read old caches. Timing includes cache reads if
+   distances. Cache names distinguish parity and sampling. Hamiltonian caching is opt-in;
+   eigensystem hits skip Hamiltonian construction entirely. Cache cleanup is
+   required before reusing names from a different coupling convention. Timing includes cache reads if
    caches already exist; use a new `--cache-dir` for cold-run comparisons.
 10. The optional legacy energy-gap histogram sorts k-subset sums and counts
     pairs with binary searches instead of enumerating all pairs. It handles
@@ -146,7 +147,7 @@ Scrooge quadrature formula with identical Haar samples; analytic k=1;
 random-phase recurrence versus brute-force moments; Simpson temporal quadrature
 versus exact energy-sum sinc formulas through k=3, including resonances;
 histograms versus explicit pair enumeration; and reference Hamiltonians versus
-dense Pauli products. Eleven numerical tests pass. One dynamite factory test is
+dense Pauli products. Eighteen tests pass, including cache scheduling and timescale diagnostics. One dynamite factory test is
 skipped here because dynamite/PETSc/SLEPc are unavailable. Python compilation
 and shell syntax checks pass. A serial orchestration smoke test using NumPy
 Hamiltonian and communicator substitutes also produced matching full/even

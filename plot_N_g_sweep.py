@@ -5,11 +5,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import utilities as ut
+import thermalization as th
 
 TACC_CACHE = './tacc_cache'
 
 
-def plot_archives(paths):
+def plot_archives(paths, gap_lines=False, fraction=None):
     """Compare saved production results across N and g without recomputing states.
 
     Parameters
@@ -18,6 +19,13 @@ def plot_archives(paths):
         NPZ files produced by syk_temp_proj.main. Each file supplies its own
         reporting times, moment orders, run parameters, and per-realization
         distance arrays. Supply at most one run for each (N,g) pair.
+
+    gap_lines : bool, default False
+        Show saved inverse-gap reference times on temporal plots; references
+        outside the time window are omitted. Saved gap_lines=True also enables it.
+    fraction : float in (0,1), or None
+        Override the saved relative threshold for observed sustained crossings.
+        None uses the saved setting, if any. Markers use disorder-mean curves.
 
     Saved runs must agree in subsystem size, maximum moment order, Scrooge
     sample count, disorder seed, parity choice, and projected-time sampling
@@ -48,14 +56,15 @@ def plot_archives(paths):
                 raise ValueError('Archives mix different physics or projected sampling parameters')
             signature = current
             runs.append((params, data['tau_series'], data['k_series'],
-                         data['temp_rp_2norm'], data['proj_scr_2norm']))
+                         data['temp_rp_2norm'], data['proj_scr_2norm'],
+                         data['moment_gap_times'] if 'moment_gap_times' in data else None))
     gs = sorted(set(p['g'] for p, *_ in runs))
     n_k = len(runs[0][2])
     figs_axes = [plt.subplots(n_k, len(gs), squeeze=False,
                   figsize=ut.fig_size(len(gs), n_k)) for _ in range(3)]
     tr_label = r'$||\rho_{Temp}^{(k)}-\rho_{RP}^{(k)}||_2$'
     ps_label = r'$\mathbb{E}_t\,||\rho_{Proj,t}^{(k)}-\rho_{Scr,cond}^{(k)}||_2$'
-    for params, times, ks, temporal, projected in sorted(runs, key=lambda x: x[0]['N']):
+    for params, times, ks, temporal, projected, gap_times in sorted(runs, key=lambda x: x[0]['N']):
         col = gs.index(params['g'])
         tr, ps = temporal.mean(axis=0), projected.mean(axis=0)
         for row, k in enumerate(ks):
@@ -64,7 +73,12 @@ def plot_archives(paths):
                 mean = samples.mean(axis=0)[:, row]
                 sem = (samples.std(axis=0, ddof=1)[:, row]/np.sqrt(len(samples))
                        if len(samples) > 1 else np.zeros_like(mean))
-                ax.plot(times[1:], mean[1:], label=f'N={params["N"]}, R={len(samples)}')
+                line, = ax.plot(times[1:], mean[1:], label=f'N={params["N"]}, R={len(samples)}')
+                th.annotate_timescales(ax, times, mean[:, None], [k],
+                    gap_times=gap_times[:, row:row+1] if index == 0 and gap_times is not None
+                        and (gap_lines or params.get('gap_lines', False)) else None,
+                    fraction=fraction if fraction is not None else params.get('thermalization_fraction'),
+                    label_prefix=f'N={params["N"]}: ', colors=[line.get_color()])
                 ax.fill_between(times[1:], np.maximum(mean[1:]-sem[1:], 0), mean[1:]+sem[1:], alpha=.2)
             figs_axes[2][1][row, col].plot(tr[1:, row], ps[1:, row], label=f'N={params["N"]}')
     os.makedirs(ut.FIG_DIR, exist_ok=True)
@@ -77,16 +91,20 @@ def plot_archives(paths):
                        ylabel=tr_label if index == 0 else ps_label)
                 ax.legend()
         fig.tight_layout()
-        fig.savefig(os.path.join(ut.FIG_DIR, f'N_g_sweep_v2_{index}.png'), **ut.FIG_SAVE_OPTIONS)
+        fig.savefig(os.path.join(ut.FIG_DIR, f'N_g_sweep_{index}.png'), **ut.FIG_SAVE_OPTIONS)
         plt.close(fig)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--results', nargs='+', help='v2 results_*.npz archives; shell wildcards are supported')
+    parser.add_argument('--results', nargs='+', help='results_*.npz archives; shell wildcards are supported')
+    parser.add_argument('--gap-lines', action='store_true', help='Show saved, resolved spectral references on temporal plots')
+    parser.add_argument('--thermalization-fraction', type=float, help='Mark observed sustained crossings relative to the initial mean distance')
     args = parser.parse_args()
+    if args.thermalization_fraction is not None and not 0 < args.thermalization_fraction < 1:
+        parser.error('--thermalization-fraction must lie between zero and one')
     if args.results:
-        plot_archives(args.results)
+        plot_archives(args.results, gap_lines=args.gap_lines, fraction=args.thermalization_fraction)
         raise SystemExit(0)
     # No arguments retain the original .npy cache plotting workflow.
     # Sweep Parameters

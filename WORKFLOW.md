@@ -261,3 +261,21 @@ The numerical tests in `tests/` implement the small-system comparisons above.
 `tests/test_hamiltonian.py` additionally compares the production factory with
 an independent Majorana construction when dynamite is installed. See
 `PERFORMANCE.md` for runtime measurements and the remaining cluster validation.
+
+
+## Cache controls and plotted timescale diagnostics
+
+`utilities.CACHE_DIR` is now kept as a static default. The production driver
+passes its chosen directory explicitly, checks the eigensystem first, and skips
+Hamiltonian construction on a saved-eigensystem hit. Hamiltonian caching and
+redundant projected intermediates are opt-in. No existing files are removed.
+
+Optional spectral lines show 2*pi/minimum k-sum gap, not a claimed convergence
+time. Repeated indices in a sum are allowed; permutations of the same label
+are excluded. Sorting all sums avoids comparing every pair, and an enumeration
+cap prevents prohibitive higher-order allocations. Zero and unresolved gaps
+are recorded without a finite line. An optional observed relative-distance
+threshold gives a direct comparison of the curves within their sampled window.
+
+See PARAMETERS.md for the precise definitions, all controls and defaults, storage
+estimates, and examples. `thermalization.py` documents the calculations.
