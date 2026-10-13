@@ -16,11 +16,12 @@ QUEUE=normal
 JOBSCRIPT=syk_job.slurm
 MANIFEST=sweep_manifest.csv
 
-N_VALUES=(16 17 19)
+N_VALUES=(16 18 20)
 G_VALUES=(0 1 10 100)
 
 # Per-N resources: "<nodes> <tasks> <walltime>".
-# Keep <tasks> a divisor of `realizations` in syk_temp_proj.py, or the job
+# The default is 128 realizations, independent of rank count. Keep <tasks>
+# a divisor of the realization count for balanced work; otherwise the job
 # runs at the speed of whichever rank drew an extra realization.
 # These times are for `log_tmax = 5`.
 resources_for_N() {
@@ -137,3 +138,4 @@ cat <<'EOF'
   scontrol show reservation          # maintenance window blocking long jobs?
   ./collect_timings.sh               # once things finish
 EOF
+
