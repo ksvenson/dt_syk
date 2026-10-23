@@ -146,8 +146,8 @@ Scrooge quadrature formula with identical Haar samples; analytic k=1;
 random-phase recurrence versus brute-force moments; Simpson temporal quadrature
 versus exact energy-sum sinc formulas through k=3, including resonances;
 histograms versus explicit pair enumeration; and reference Hamiltonians versus
-dense Pauli products. Twenty-seven tests pass, including cache scheduling, norm hierarchies, degenerate
-coherences and instantaneous targets. One dynamite factory test is
+dense Pauli products. Thirty-one tests pass, including cache scheduling, norm hierarchies, degenerate
+coherences, initial-state-adapted energy bases, and instantaneous targets. One dynamite factory test is
 skipped here because dynamite/PETSc/SLEPc are unavailable. Python compilation
 and shell syntax checks pass. A serial orchestration smoke test using NumPy
 Hamiltonian and communicator substitutes also produced matching full/even

@@ -41,10 +41,10 @@ if __name__ == '__main__':
     nbins = 100
     hist_cutoff = 0.1
     if H_str == 'SYK':
-        exp_note = lambda task_num, k: f'{H_str}_N{N}_q{q}_seed{seed}_num{task_num}_psi0{psi0_str}_k{k}_logtmax{log_tmax}_ns{ns}'
+        exp_note = lambda task_num, k: f'{H_str}_N{N}_q{q}_seed{seed}_num{task_num}_psi0{psi0_str}_k{k}_logtmax{log_tmax}_ns{ns}_rpenergyblocks'
         H_note = lambda task_num: f'N{N}_q{q}_seed{seed}_num{task_num}'
     elif H_str == 'SYK42':
-        exp_note = lambda task_num, k: f'{H_str}_N{N}_g{g:.4f}_seed{seed}_num{task_num}_psi0{psi0_str}_k{k}_logtmax{log_tmax}_ns{ns}'
+        exp_note = lambda task_num, k: f'{H_str}_N{N}_g{g:.4f}_seed{seed}_num{task_num}_psi0{psi0_str}_k{k}_logtmax{log_tmax}_ns{ns}_rpenergyblocks'
         H_note = lambda task_num: f'N{N}_g{g:.4f}_seed{seed}_num{task_num}'
     else:
         raise NotImplementedError(f'Unsupported SYK Hamiltonian: {H_str}')
@@ -90,7 +90,8 @@ if __name__ == '__main__':
         else:
             raise NotImplementedError(f'Unsupported SYK Hamiltonian: {H_str}')
         eigs = la.eig_system(H_np, note=H_str+'_'+H_note(task_num))
-        pops = la.get_pops(eigs['evecs'], psi0_np)
+        eigs = tf.initial_state_eigenbasis(eigs['evals'], eigs['evecs'], psi0_np)
+        pops = np.abs(eigs['coefficients'])**2
 
         for k_idx, k in enumerate(k_series):
             tools.mpi_print(f'k={k}: Computing temp_norm_squared_exact')
@@ -108,7 +109,7 @@ if __name__ == '__main__':
                 k,
                 bin_edges,
                 verbose=False,
-                note=f'{H_str}_{H_note(task_num)}_k{k}_nbins{nbins}_cf{hist_cutoff}'
+                note=f'{H_str}_{H_note(task_num)}_k{k}_nbins{nbins}_cf{hist_cutoff}_rpenergyblocks'
             )
             local_diff_counts[k_idx, :] += diff_output['counts']
             local_min_diffs[i, k_idx] = diff_output['min']

@@ -96,7 +96,7 @@ def parse_args():
     parser.add_argument('--cache-projected', action=argparse.BooleanOptionalAction, default=False,
                         help='Save per-state projected intermediate arrays in addition to final results')
     parser.add_argument('--degeneracy-tolerance', type=float, default=None,
-                        help='Absolute energy-block tolerance for diagnostics and coherent dephasing; default uses floating-point precision')
+                        help='Absolute tolerance for adapting degenerate eigenvectors to psi0; grouped energies use a common mean; default uses floating-point precision; 0 requires exact equality')
     parser.add_argument('--gap-k-max', type=int, default=1,
                         help='Exact spectral gap diagnostics through this order; 0 disables; capped by gap-max-sums')
     parser.add_argument('--gap-max-sums', type=positive_int, default=5_000_000,
@@ -262,7 +262,8 @@ def main():
                 f'_dt{args.dt}_pdt{args.projected_dt}_ps{args.projected_sampling}'
                 f'_ts{args.time_seed}_scr{args.n_scr}_check{int(args.check_dt)}'
                 f'_gap{args.gap_k_max}_gcap{args.gap_max_sums}'
-                f'_fraction{args.thermalization_fraction}')
+                f'_fraction{args.thermalization_fraction}'
+                f'_rpenergyblocks_tol{args.degeneracy_tolerance}')
     task_alloc = [np.arange(i, args.realizations, size) for i in range(size)]
     tasks = task_alloc[rank]
     local_tr = np.empty((len(tasks), len(times), len(ks)))
@@ -277,7 +278,8 @@ def main():
     for i, r in enumerate(tasks):
         rng = lambda stream: np.random.default_rng(np.random.SeedSequence(args.seed, spawn_key=(int(r), stream)))
         h_note = f'SYK42mix_N{args.N}_g{args.g}_base-seed{args.seed}_r{r}_parity{args.parity}'
-        scr_note = f'{h_note}_psi00_DA{DA}_scr{args.n_scr}_k{args.k_max}_sym'
+        scr_note = (f'{h_note}_psi00_DA{DA}_scr{args.n_scr}_k{args.k_max}_sym'
+                    f'_rpenergyblocks_tol{args.degeneracy_tolerance}')
         t0 = perf_counter()
         eig_hit = args.cache_eigensystem and la.eig_system.cache_exists(note=h_note, cache_dir=cache_dir)
         if eig_hit:
@@ -292,14 +294,24 @@ def main():
                                  cache_enabled=args.cache_eigensystem)
             del H
         t2 = perf_counter()
-        evals, evecs = eigs['evals'], eigs['evecs']
-        coefficients = evecs.conj().T @ psi0
+        adapted = tf.initial_state_eigenbasis(
+            eigs['evals'], eigs['evecs'], psi0, args.degeneracy_tolerance)
+        evals, evecs = adapted['evals'], adapted['evecs']
+        coefficients = adapted['coefficients']
+        del eigs
         pops = np.abs(coefficients)**2
         max_dt = tf.spectral_sampling_diagnostics(evals, args.k_max, 1.)['nyquist_dt']
         dt = min(.1, .5*max_dt) if args.dt == 'auto' else args.dt
         diagnostics = tf.spectral_sampling_diagnostics(evals, args.k_max, dt)
         diagnostics['warnings'] = []
-        diagnostics['degeneracy'] = tf.degeneracy_diagnostics(evals, pops, ks, args.degeneracy_tolerance)
+        diagnostics['initial_state_eigenbasis'] = adapted['basis_diagnostics']
+        diagnostics['initial_state_eigenbasis']['ket_error_bound_at_tmax'] = (
+            args.tmax*adapted['basis_diagnostics']['max_energy_shift'])
+        # Blocks have already been identified and assigned common energies.
+        # Regrouping with the original tolerance could merge neighboring blocks.
+        diagnostics['degeneracy'] = tf.degeneracy_diagnostics(evals, pops, ks, 0.)
+        diagnostics['degeneracy']['reference'] = adapted['basis_diagnostics']['reference']
+        del adapted
         if args.verbose:
             print(f'Rank {rank}, realization {r}: bandwidth={diagnostics["bandwidth"]:.6g}, '
                   f'Nyquist bound dt<{max_dt:.6g}, using dt<={dt:.6g}', flush=True)
@@ -346,7 +358,7 @@ def main():
                     print(f'Rank {rank}, k={k} gap diagnostic: {gap}', flush=True)
         t3 = perf_counter()
         dephased_vectors, dephased_pops = tf.energy_dephased_components(
-            evals, evecs, coefficients, diagnostics['degeneracy']['energy_tolerance'])
+            evals, evecs, coefficients, 0.)
         target = pf.cond_scr_moment(dephased_vectors, dephased_pops, args.n_scr, ks, DA, rng(1),
                     note=scr_note+'_dephased_tol'+str(diagnostics['degeneracy']['energy_tolerance']), basis_indices=indices, full_dimension=D, symmetric=True, cache_dir=cache_dir)
         t4 = perf_counter()
@@ -355,8 +367,9 @@ def main():
             time_rng = np.random.default_rng(np.random.SeedSequence(
                 args.seed, spawn_key=(int(r), 2, args.time_seed)))
             sample_times[1:] = times[:-1] + width*time_rng.random(n_intervals)
+        active = pops > 0
         sampled = pf.time_evolved_overlaps_and_ps_2norm(
-            evals, evecs, coefficients, sample_times, ks, DA, target,
+            evals[active], evecs[:, active], coefficients[active], sample_times, ks, DA, target,
             chunk=args.chunk, note=f'{run_note}_r{r}', basis_indices=indices,
             full_dimension=D, symmetric=True, cache_dir=cache_dir,
             cache_enabled=args.cache_projected, instantaneous=True, n_scr=args.n_scr, rng=rng(3))
@@ -435,7 +448,9 @@ def main():
                  projected_threshold_times=observed_times(projected),
                  single_scrooge_threshold_times=observed_times(single),
                  instantaneous_gse_threshold_times=observed_times(instantaneous_gse),
-                 metadata=np.array(json.dumps(dict(vars(args), hamiltonian_convention='(1-g)*SYK4+g*SYK2'))))
+                 metadata=np.array(json.dumps(dict(vars(args), hamiltonian_convention='(1-g)*SYK4+g*SYK2',
+                     rp_reference='initial-state-adapted energy blocks',
+                     energy_grouping='mean energy within each numerically degenerate block'))))
         print(f'Analysis complete: {args.realizations} realizations in {analysis_wall_seconds:.1f}s', flush=True)
         if sampling_warnings.any():
             print(f'WARNING: {int(sampling_warnings.sum())}/{args.realizations} realizations exceed the '

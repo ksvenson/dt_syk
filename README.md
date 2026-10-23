@@ -4,6 +4,11 @@ The production entry point is `syk_temp_proj.py`: diagonalize (1-g) SYK4 + g SYK
 compare continuous temporal moments with exact random-phase moments, and compare
 state-conditioned projected moments with conditional Scrooge moments.
 
+After diagonalization, the energy basis is adapted to the initial ket: each
+degenerate energy block has one occupied basis ket. Independent RP phases
+therefore act on energy-projected initial components, so the first temporal
+moment converges to the RP first moment even with energy degeneracies.
+
 See [INSTANTANEOUS_SCROOGE.md](INSTANTANEOUS_SCROOGE.md) for the two new
 instantaneous targets, exact identities, sampling, and computational savings.
 

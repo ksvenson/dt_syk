@@ -380,7 +380,10 @@ def temporal_distance_continuous(evals, pops, k_series, tau_series,
     distance identity. They can prevent its long-time limit from vanishing:
     equality of the continuous temporal and independent random-phase
     ensembles requires an additional condition excluding relevant resonances.
-    No such condition is assumed here."""
+    No such condition is assumed here. In production the caller first uses
+    initial_state_eigenbasis, leaving one occupied ket per energy block.
+    Its first-moment limit is then zero; higher energy-sum resonances remain
+    possible. This function itself does not rotate or group the supplied basis."""
     import random_phase as rp
 
     times = np.asarray(tau_series, dtype=float)
@@ -401,6 +404,10 @@ def temporal_distance_continuous(evals, pops, k_series, tau_series,
     # Composite Simpson quadrature needs an even number of subdivisions.
     subdivisions = max(2, 2*int(np.ceil(spacing/(2*dt))))
     h = spacing/subdivisions
+    # The adapted eigenbasis contains one occupied ket per energy block.
+    # Omit only exact zeros, retaining every nonzero initial component.
+    active = pops > 0
+    evals, pops = evals[active], pops[active]
     baseline = rp.rpe_square_2norm(pops, int(ks.max()))[ks-1]
     squared = np.empty((len(times), len(ks)))
     squared[0] = 1-baseline
@@ -433,6 +440,112 @@ def temporal_distance_continuous(evals, pops, k_series, tau_series,
         raise ValueError('Quadrature produced a negative squared distance; decrease --dt')
     return {'distance': np.sqrt(np.maximum(squared, 0)),
             'distance_squared': squared, 'dt_effective': np.array(h)}
+
+
+def initial_state_eigenbasis(evals, evecs, psi0, tolerance=None):
+    """Choose one occupied eigenket in each degenerate energy eigenspace.
+
+    A pure initial ket has a single projected component Pi_b|psi0> in each
+    equal-energy eigenspace. This function makes its normalized version the
+    first basis ket in that space. The other basis kets remain orthonormal
+    and have exactly zero initial coefficients in the returned representation.
+    Thus independent phases on the returned occupied kets mean one phase per
+    distinct energy component, and the first RP moment is the physical
+    energy-dephased state sigma=sum_b Pi_b|psi0><psi0|Pi_b.
+
+    Parameters
+    ----------
+    evals : real array, shape (D,)
+        Energies supplied by the eigensolver, in any order.
+    evecs : complex or real array, shape (D, D)
+        Corresponding orthonormal eigenkets as columns, in the retained sector.
+        This function assumes orthonormality; it does not repeat diagonalization.
+    psi0 : complex or real array, shape (D,)
+        Normalized initial ket in the same sector basis as the eigenvector rows.
+        The adapted basis depends on this ket, so it is constructed AFTER loading
+        the cached eigensystem, without overwriting that initial-state-free cache.
+    tolerance : nonnegative float or None
+        Maximum energy spread in a block, anchored at its lowest energy.
+        None uses the machine-precision scale of degeneracy_diagnostics.
+        Zero groups only literally equal energies. Floating-point eigensolvers
+        usually split exact degeneracies by roundoff. To rotate such a block
+        consistently, its energies are replaced by their common mean. This is
+        exact for an exactly degenerate block and an explicit approximation for
+        a numerically grouped block. A real physical splitting must be resolved
+        with a smaller tolerance, rather than declared degenerate.
+
+    Returns
+    -------
+    dict
+        'evals', 'evecs', and 'coefficients' are the adapted representation;
+        evecs@coefficients reconstructs psi0. 'basis_diagnostics' records the
+        tolerance, maximum original block spread, maximum energy replacement,
+        occupied block count, and reconstruction error. Arrays supplied by the
+        caller are left unchanged. Empty blocks retain their original basis;
+        no small nonzero population is discarded.
+
+    For exact degeneracies the Hamiltonian and all evolved states are unchanged.
+    For numerical grouping, replacing energies by block means changes the
+    Hamiltonian by operator norm at most delta=max_energy_shift. At time t the
+    ket changes by at most |t|*delta (plus floating-point arithmetic error).
+    The production driver saves this bound at tmax. A stable reflection rotates
+    each occupied block, costing O(D*m) for a block of m kets; no second dense
+    eigensolve or full D-by-D rotation matrix is needed.
+    """
+    energies = np.asarray(evals, dtype=float)
+    vectors = np.asarray(evecs)
+    state = np.asarray(psi0)
+    if (energies.ndim != 1 or energies.size == 0
+            or vectors.shape != (energies.size, energies.size)
+            or state.shape != energies.shape
+            or not np.all(np.isfinite(vectors)) or not np.all(np.isfinite(state))
+            or not np.isclose(np.vdot(state, state).real, 1., atol=1e-10, rtol=0)):
+        raise ValueError('Need a normalized initial ket and a matching square eigenbasis')
+    coefficients = vectors.conj().T @ state
+    report = degeneracy_diagnostics(energies, np.abs(coefficients)**2, [1], tolerance)
+    adapted_energies = energies.copy()
+    adapted_vectors = vectors.astype(np.result_type(vectors.dtype, state.dtype, complex), copy=True)
+    adapted_coefficients = coefficients.astype(complex, copy=True)
+    order = np.argsort(energies, kind='stable')
+    start, occupied, rotated, max_spread = 0, 0, 0, 0.
+    for count in report['block_multiplicities']:
+        indices = order[start:start+count]
+        start += count
+        block_energies = energies[indices]
+        spread = float(np.ptp(block_energies))
+        max_spread = max(max_spread, spread)
+        if spread > 0:
+            adapted_energies[indices] = block_energies.mean()
+        c = coefficients[indices]
+        amplitude = np.linalg.norm(c)
+        if amplitude == 0:
+            continue
+        occupied += 1
+        if count == 1:
+            adapted_vectors[:, indices[0]] *= c[0]/amplitude
+        else:
+            direction = c/amplitude
+            phase = direction[0]/abs(direction[0]) if direction[0] != 0 else 1.
+            reflection = direction.copy()
+            reflection[0] += phase
+            reflection /= np.linalg.norm(reflection)
+            block = adapted_vectors[:, indices]
+            block -= 2*np.outer(block @ reflection, reflection.conj())
+            block[:, 0] *= -phase
+            adapted_vectors[:, indices] = block
+            rotated += 1
+        adapted_coefficients[indices] = 0
+        adapted_coefficients[indices[0]] = amplitude
+    diagnostics = {
+        'reference': 'independent phases per occupied energy-projected initial component',
+        'energy_tolerance': report['energy_tolerance'],
+        'occupied_energy_blocks': occupied, 'rotated_occupied_blocks': rotated,
+        'max_original_block_spread': max_spread,
+        'max_energy_shift': float(np.max(np.abs(adapted_energies-energies))),
+        'initial_state_reconstruction_error': float(np.linalg.norm(
+            adapted_vectors @ adapted_coefficients-state))}
+    return {'evals': adapted_energies, 'evecs': adapted_vectors,
+            'coefficients': adapted_coefficients, 'basis_diagnostics': diagnostics}
 
 
 def degeneracy_diagnostics(evals, pops, k_series, tolerance=None):
@@ -486,8 +599,9 @@ def degeneracy_diagnostics(evals, pops, k_series, tolerance=None):
             weights.append(float(probabilities[start:stop].sum()))
             centers.append(float(energies[start:stop].mean()))
             start = stop
-    baseline = rp.rpe_square_2norm(probabilities, int(ks.max()))[ks-1]
-    block_purity = rp.rpe_square_2norm(np.array(weights), int(ks.max()))[ks-1]
+    baseline = rp.rpe_square_2norm(probabilities[probabilities > 0], int(ks.max()))[ks-1]
+    weights_array = np.array(weights)
+    block_purity = rp.rpe_square_2norm(weights_array[weights_array > 0], int(ks.max()))[ks-1]
     floors = np.sqrt(np.maximum(block_purity-baseline, 0))
     return {'energy_tolerance': float(tolerance), 'number_of_energy_blocks': len(counts),
             'degenerate_blocks': int(np.count_nonzero(np.array(counts) > 1)),

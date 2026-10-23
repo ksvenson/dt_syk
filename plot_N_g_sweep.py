@@ -13,7 +13,8 @@ def plot_archives(paths, gap_lines=False, fraction=None):
 
     paths is a nonempty list of production NPZ files, one per (N,g). Runs must
     agree in subsystem, moment orders, random seed, parity, projected-time
-    sampling controls, Scrooge sample count, and Hamiltonian convention. Their
+    sampling controls, Scrooge sample count, Hamiltonian convention, RP reference,
+    and energy-grouping tolerance. Their
     realization counts may differ. Each curve averages distances over disorder;
     bands are disorder SEM, not separate Haar/time-sampling error estimates.
 
@@ -43,7 +44,8 @@ def plot_archives(paths, gap_lines=False, fraction=None):
                 raise ValueError(f'Multiple archives for {pair}; choose one')
             seen.add(pair)
             current = tuple(params.get(k) for k in ('NA','k_max','n_scr','seed','parity',
-                'projected_sampling','projected_dt','time_seed','tmax','hamiltonian_convention'))
+                'projected_sampling','projected_dt','time_seed','tmax','hamiltonian_convention',
+                'rp_reference','energy_grouping','degeneracy_tolerance'))
             if signature is not None and signature != current:
                 raise ValueError('Archives mix incompatible physical or sampling parameters')
             signature = current

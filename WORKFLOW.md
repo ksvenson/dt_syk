@@ -21,6 +21,21 @@ $$H|E_\alpha\rangle=E_\alpha|E_\alpha\rangle,\qquad
 c_\alpha=\langle E_\alpha|\psi_0\rangle,\qquad
 p_\alpha=|c_\alpha|^2.$$
 
+The cached eigensystem is the raw solver output. After loading it,
+`initial_state_eigenbasis` rotates each degenerate block so its first ket is
+$|\chi_b\rangle=\Pi_b|\psi_0\rangle/\sqrt{q_b}$, with
+$q_b=\|\Pi_b|\psi_0\rangle\|^2$. All other initial coefficients in that block
+are set to exactly zero. Below, evecs, evals, c_alpha and p_alpha refer to this
+adapted representation. The arbitrary unused basis completion does not affect
+the state or the RP ensemble. The raw cache is not overwritten.
+
+Numerically grouped energies use a common mean before rotating the block.
+The default tolerance is a machine-precision scale; zero requires literal
+equality. A genuine small physical splitting must be resolved with a smaller
+tolerance. Saved diagnostics include the largest energy replacement delta
+and the bound tmax*delta on the evolved-ket error. For exact degeneracy the
+Hamiltonian and evolution are unchanged. See NORM_DIAGNOSTICS.md for details.
+
 `evecs[:,alpha]` is the energy eigenket; `evals[alpha]` is its energy.
 `psi0_eng_basis[alpha]` is c_alpha; `pops[alpha]` is p_alpha.
 
@@ -33,9 +48,11 @@ state and Hamiltonian and is not a prescription for arbitrary initial states.
 
 ## 2. Compute the random-phase reference exactly
 
-Here RP means an ensemble with an independent phase for every numerical energy
-eigenvector, not one phase per degenerate energy block. See NORM_DIAGNOSTICS.md
-for the distinction and its relation to the physical energy-dephased state.
+Here RP means independent phases in the initial-state-adapted energy basis:
+there is one occupied ket per energy block. Its first moment is exactly the
+physical energy-dephased state sigma, including when the spectrum is degenerate.
+This differs from the former raw-eigenvector RP reference. Higher energy-sum
+resonances can still obstruct higher-moment temporal convergence.
 
 The independent random-phase states are
 
@@ -128,8 +145,9 @@ $$\sigma=\sum_b\Pi_b|\psi_0\rangle\langle\psi_0|\Pi_b,$$
 where Pi_b projects onto a full degenerate energy subspace. The calculation
 retains coherences inside each block. Without degeneracies this reduces to
 sum_alpha p_alpha |E_alpha><E_alpha|. See NORM_DIAGNOSTICS.md for the numerical
-energy grouping tolerance and its effect on the independent eigenvector-phase
-RP reference, which remains the definition of the temporal comparison.
+energy grouping tolerance and the adapted block-phase RP reference used in
+the temporal comparison. The same identified blocks are used throughout;
+they are not regrouped with the original tolerance after assigning common energies.
 
 The full basis is ordered as $|z\rangle_B\otimes|a\rangle_A$, with integer
 label z*DA+a, so a full ket reshapes to `(DB,DA)`. The default NA=4 Majoranas

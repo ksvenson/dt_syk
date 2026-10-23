@@ -10,6 +10,44 @@ Hilbert space used in the calculation**. With even parity, D=2^(N/2-1). In
 particular, N=20 gives D=512. This D is not DA, the dimension of subsystem A,
 and differs from the full-space dimension denoted D in parts of WORKFLOW.md.
 
+## Current reference: one occupied ket per energy eigenspace
+
+After loading the eigensystem, `initial_state_eigenbasis` rotates the basis
+within each degenerate energy eigenspace. Its first ket is
+
+$$
+q_b=\|\Pi_b|\psi_0\rangle\|^2,\qquad
+|\chi_b\rangle=\frac{\Pi_b|\psi_0\rangle}{\sqrt{q_b}}
+\quad(q_b>0).
+$$
+
+The remaining kets are orthogonal to the initial state, with zero initial
+population. The production temporal/RP comparison now uses this adapted basis.
+Equivalently its RP reference is
+
+$$
+|\psi_{\boldsymbol\theta}\rangle
+=\sum_b\sqrt{q_b}\,e^{i\theta_b}|\chi_b\rangle.
+$$
+
+It depends only on the Hamiltonian's energy projectors and the initial ket;
+the arbitrary completion of each eigenspace ONB has no effect. Its first moment
+is exactly the physical dephased state sigma. Thus the first temporal moment
+converges to it, including for a degenerate Hamiltonian. This is an infinite-time
+statement, with finite integration error in the numerical calculation. It is
+not an assertion that an instantaneous evolved pure state becomes mixed.
+
+The physical ket, density matrix, temporal moments, energy projectors, and
+sigma are basis-independent operators. An independent-phase RP prescription
+in an arbitrary basis generally depends on that basis. The adapted prescription
+above removes dependence on arbitrary choices inside an energy eigenspace.
+Higher-order resonances among distinct occupied energies can still obstruct
+convergence of higher temporal moments to this reference.
+
+For exact degeneracies the rotation leaves the Hamiltonian and evolution
+unchanged. Numerically grouped energies use a common block mean; the effect
+of this explicit approximation is described under numerical checks below.
+
 ## Moments describe the same ensemble with more copies
 
 An ensemble is a probability distribution of normalized pure kets. Its first
@@ -115,8 +153,9 @@ $$
 $$
 
 For N=20 in even parity, the factors relating the second and third errors to
-the first are 1/sqrt(512) and 1/512. A visible first-order plateau is compatible
-with much smaller higher-order Frobenius errors.
+the first are 1/sqrt(512) and 1/512. A finite first-order error is compatible
+with much smaller higher-order Frobenius errors. The inequality does not
+predict a nonzero asymptotic floor for the current adapted reference.
 
 The dimension factor is real, not just an artifact of a loose proof. For any
 operator Y, take X=Y tensor I_m/m. Its partial trace is Y, whereas
@@ -165,16 +204,19 @@ $$
 =\sum_\alpha p_\alpha|E_\alpha\rangle\langle E_\alpha|.
 $$
 
-The temporal comparison measures distance to the moments of this ensemble.
-The code evaluates their purities exactly; it does not estimate them by
-sampling phases.
+This is the general eigenvector-phase definition. In current production runs,
+the eigenbasis is first adapted as described above, so only one coefficient
+per energy block is nonzero. The temporal comparison measures distance to the
+moments of that adapted ensemble. The code evaluates their purities exactly;
+it does not estimate them by sampling phases.
 
 Independent phases and dynamical phases are not always interchangeable.
 If two energies coincide, time evolution gives their coefficients the same
 phase, so their relative phase never changes. The RP ensemble nevertheless
 randomizes their phases independently. It explores relative phases that the
-physical trajectory never explores. Even after arbitrarily long averaging,
-the two ensembles can therefore differ. At higher orders, equal sums of
+physical trajectory never explores. This explains the former unadapted
+reference's nonzero first-moment floor. The adapted reference avoids this
+issue because there is only one occupied ket per block. At higher orders, equal sums of
 energies can create further differences even without single-energy degeneracy.
 
 ## Sigma is the physical time-averaged density matrix
@@ -215,8 +257,9 @@ different energies. This is energy dephasing, often called the diagonal
 ensemble. With degeneracies, 'diagonal' means block diagonal in an arbitrary
 energy basis, not that every off-diagonal matrix element must be zero.
 
-When the spectrum is nondegenerate, each Pi_b has rank one, and sigma reduces
-to rho_RP^(1). When the spectrum is degenerate, they generally differ.
+In an arbitrary unadapted eigenbasis, sigma and rho_RP^(1) can differ when
+energies are degenerate. In the current adapted basis they agree for every
+pure initial state, whether or not the spectrum is degenerate.
 
 The former code used sum_alpha p_alpha |E_alpha><E_alpha| as the physical
 dephased input. This removed within-block coherence as well. That was the
@@ -250,7 +293,7 @@ not changed; the independently randomized reference ensemble has changed.
 
 This is the precise meaning of the earlier phrase 'the RP reference chosen by
 the numerical eigensolver': the eigensolver returns an orthonormal basis in
-each degenerate space, and **our definition** assigns an independent phase to
+each degenerate space, and **the former definition** assigned an independent phase to
 each vector in that returned basis. The eigensolver does not itself choose a
 statistical ensemble. A more accurate phrase is 'the eigenvector-phase RP
 ensemble defined using the basis returned by the eigensolver.'
@@ -259,11 +302,13 @@ This dependence concerns rotations that mix degenerate eigenvectors. Merely
 changing each eigenvector's overall phase, or reordering the vectors, does not
 change the RP ensemble; the coefficients transform with the basis.
 
-A different, basis-independent reference would assign one phase to each
-energy-projected component Pi_b|psi_0>. Its first moment is sigma. That is a
-block-phase RP ensemble and is not the per-eigenvector RP ensemble currently
-plotted. Additional higher-order energy-sum resonances can still distinguish
-a temporal ensemble from that block-phase reference.
+The current implementation adapts this basis to the initial ket. It therefore
+assigns one phase to each energy-projected component Pi_b|psi_0>, independently
+of which numerical eigenbasis was originally returned. In this example it
+always gives the singleton pure-state ensemble |+><+|, with zero temporal/RP
+distance at every moment order. More generally, additional higher-order
+energy-sum resonances can distinguish a temporal ensemble from this adapted
+block-phase reference.
 
 ## How sigma becomes the projected-ensemble target
 
@@ -295,7 +340,7 @@ The relevant objects are therefore:
 |---|---|---|
 | rho(t) | One instantaneous pure density matrix | Full system |
 | sigma | Physical energy-dephased average | Full system |
-| rho_RP^(k) | Moment of independent phases in the numerical eigenbasis | k copies of full system |
+| rho_RP^(k) | Moment of independent phases on occupied energy-projected components | k copies of full system |
 | sigma_z | Unnormalized conditional block of sigma after a bath outcome | Subsystem A |
 | G_k[sigma] | Fixed generalized Scrooge target moment | k copies of A |
 
@@ -306,7 +351,13 @@ q_z above. The conditional blocks are calculated directly from these weighted
 kets, avoiding storage of a full D by D sigma. Tests verify invariance under
 rotations within degenerate eigenspaces.
 
-## Why the higher-order plateaus can appear later
+## Understanding the former unadapted-reference plateaus
+
+This section explains historical curves computed with independent phases in
+the raw numerical eigenbasis. Its degeneracy-only floors do NOT apply to the
+current adapted-reference curves. With the adapted reference this contribution
+is zero at every k; higher energy-sum resonances can still give nonzero floors
+for k>1. The general partial-trace inequalities above remain valid.
 
 Let q_b=sum_(alpha in block b) p_alpha. Randomizing one phase per block gives
 RP purities P_RP,k(q), whereas independent eigenvector phases give P_RP,k(p).
@@ -392,7 +443,7 @@ zero, even parity, gives the following estimates:
 | 12 | 32 | 16 | 0.03673, 0.02012, 0.01137 |
 | 20 | 512 | 256 | 0.02835, 0.004156, 0.0006450 |
 
-The eigenvector-phase RP ensemble in this table uses the numerical basis
+The historical eigenvector-phase RP ensemble in this table uses the numerical basis
 returned in that calculation. Another basis within the same degenerate blocks
 can change these values without changing physical dynamics or sigma. They are
 not universal SYK constants or predictions of the exact saturation times.
@@ -409,16 +460,71 @@ traces, verify trace-norm monotonicity, exhibit decreasing Frobenius floors,
 and compare the overlap integral with the direct moments. The overlap/purity
 identity itself passes these checks with degeneracies.
 
+Additional tests check the adapted basis's orthonormality, reconstruction of
+the initial ket, preservation of the Hamiltonian and evolved kets for exact
+degeneracies, independence of the occupied kets from arbitrary block rotations,
+and equality of its RP first moment with sigma. An explicit 0+2=1+1 example
+checks that a genuine second-order resonance survives the basis adaptation.
+
 The default grouping tolerance is 64*machine_epsilon times the larger of one,
 spectral width, and maximum absolute energy. --degeneracy-tolerance changes it,
 including zero for literal equality. Grouping nearly equal numerical energies
 is an assumption about unresolved degeneracy, not a proof of an exact symmetry.
-It affects the corrected dephased target and the floor estimates, and is included
-in that target's cache name. It does not snap energies in the evolution. A weak
-physical splitting calls for a smaller grouping tolerance; finite but small
-gaps can mimic a plateau over a finite observation window.
+It now defines the blocks used to adapt the eigenbasis. Each block's computed
+energies are replaced by their common mean before evolution and RP analysis.
+This makes the rotated kets a consistent numerical eigensystem; rotating
+unequal energies while keeping their old labels would not. Exact equal
+energies are unchanged. Empty blocks retain their original eigenvectors.
+
+This is a change from the earlier diagnostics-only grouping policy. It is an
+explicit numerical representation of assumed exact degeneracy, and must not
+be used to erase a physical splitting. Use a smaller tolerance, including zero
+for literal equality, when such splittings matter. Once identified, blocks
+are not grouped a second time with the original tolerance.
+
+Let delta be the largest energy replacement. In the original eigenbasis, the
+Hamiltonian change is diagonal and has operator norm delta. Consequently the
+difference between the two evolved kets has norm at most |t|*delta. The JSON
+field `initial_state_eigenbasis` records `max_original_block_spread`,
+`max_energy_shift`, `initial_state_reconstruction_error`, and
+`ket_error_bound_at_tmax`. This separates the numerical approximation from the
+exact statement about true degeneracies. Finite but small resolved gaps can
+still mimic a plateau over a finite observation window.
+
+The raw cached eigensystem is retained unchanged and is adapted after loading,
+so it remains independent of the initial ket. New result/intermediate names
+include `rpenergyblocks` and the requested tolerance, and metadata identifies
+the RP convention. The sweep plot rejects archives with differing RP conventions
+or grouping tolerances. Recompute temporal curves when comparing to old results.
 
 For pure SYK4, N=12,20,28 all have N mod 8=4, making those additional sizes useful
 checks. At N=28, even parity has dimension 8192 and a single complex128 dense
 matrix occupies 1 GiB before eigenvectors and solver workspace. Start with a
 small simultaneous realization count when checking that case.
+
+## Literature and the distinction between RP and Scrooge
+
+Mark et al., [Maximum Entropy Principle in Deep Thermalization and in
+Hilbert-Space Ergodicity](https://doi.org/10.1103/PhysRevX.14.041051),
+Phys. Rev. X 14, 041051 (2024), explicitly discuss this reduction in Sec. IV
+(following Definition 3 in the [arXiv version](https://arxiv.org/html/2403.11970v1)).
+They call the remaining requirement the no-resonance condition modulo
+degeneracies: apply the energy-sum condition after removing repeated energy
+values, with one occupied direction per eigenspace. Their Theorem 1 relates
+the temporal and RP ensembles using this condition.
+
+First moments require no additional condition: S_1[sigma]=sigma by the
+definition of a Scrooge ensemble. Equality of first moments does not establish
+equality of the full ensembles. A global RP ensemble has fixed energy
+populations, while a mixed-input Scrooge ensemble generally allows them to
+fluctuate, so exact equality at all moments is not generic at finite dimension.
+
+Mok, Haug, Ho and Preskill, [Nature is stingy: Universality of Scrooge ensembles
+in quantum many-body systems](https://arxiv.org/abs/2601.00266) (2026),
+Theorem 1 and Appendix C, prove that RP ensembles approximate Scrooge moments
+under quantitative small-purity conditions. Their Appendix D addresses
+normalized projected ensembles and generalized Scrooge targets. The
+degeneracy reduction supplies the relevant occupied support for these
+arguments; it does not remove higher-order resonances or the other assumptions
+needed for Scrooge behavior.
+

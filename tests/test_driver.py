@@ -65,6 +65,9 @@ class DriverTests(unittest.TestCase):
                 self.assertIn('Detailed timings and diagnostics:', output)
                 archive = next(Path(directory).glob('results_*.npz'))
                 with np.load(archive) as data:
+                    self.assertIn('_rpenergyblocks_tol',archive.name)
+                    metadata = json.loads(str(data['metadata']))
+                    self.assertEqual(metadata['rp_reference'],'initial-state-adapted energy blocks')
                     first = data['temp_rp_2norm'].copy()
                     single = data['proj_single_scr_2norm'].copy()
                     gse = data['proj_instantaneous_gse_2norm'].copy()
@@ -96,6 +99,8 @@ class DriverTests(unittest.TestCase):
                 self.assertIn('dt_half_max_distance_error', timing['sampling_diagnostics'])
                 self.assertIn('moment_gaps', timing['sampling_diagnostics'])
                 self.assertIn('warnings', timing['sampling_diagnostics'])
+                basis = timing['sampling_diagnostics']['initial_state_eigenbasis']
+                self.assertLess(basis['initial_state_reconstruction_error'],1e-13)
             if importlib.util.find_spec('matplotlib') is not None:
                 import matplotlib
                 matplotlib.use('Agg')
@@ -105,6 +110,30 @@ class DriverTests(unittest.TestCase):
                     driver.plot_results(np.arange(5.), first, first, np.arange(1,4),
                                         'test', 'test', fraction=.5,single=single,instantaneous_gse=gse)
                 self.assertEqual(len(list(Path(directory).glob('*.png'))), 9)
+                # Reject mixing the old numerical-vector RP definition with
+                # the adapted definition, even for different N configurations.
+                with np.load(archive) as data:
+                    incompatible = dict(data)
+                metadata = json.loads(str(incompatible['metadata']))
+                metadata['N'] = 10
+                metadata.pop('rp_reference')
+                incompatible['metadata'] = np.array(json.dumps(metadata))
+                legacy_path = Path(directory)/'legacy_reference.npz'
+                np.savez(legacy_path,**incompatible)
+                with self.assertRaises(ValueError):
+                    plotting.plot_archives([str(archive),str(legacy_path)])
+            # End-to-end pure SYK4 case with degenerate doublets (N mod 8=4).
+            # This also exercises adaptation of an eigensystem loaded from disk.
+            degenerate_argv = argv+['--N','12','--g','0','--realizations','1']
+            with mock.patch.object(sys,'argv',degenerate_argv), mock.patch('builtins.print'):
+                driver.main()
+                driver.main()
+            timing_path = next(Path(directory).glob('timing_mix_N12_*.json'))
+            diagnostic = json.loads(timing_path.read_text())['sampling_diagnostics']
+            self.assertEqual(diagnostic['degeneracy']['block_multiplicities'],[2]*16)
+            self.assertEqual(diagnostic['initial_state_eigenbasis']['occupied_energy_blocks'],16)
+            assert_allclose(diagnostic['degeneracy']['degeneracy_floor_lower_bounds'],0,atol=0)
+            self.assertLess(diagnostic['initial_state_eigenbasis']['ket_error_bound_at_tmax'],1e-11)
 
 
 if __name__ == '__main__':
