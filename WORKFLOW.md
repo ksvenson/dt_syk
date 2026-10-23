@@ -117,13 +117,15 @@ nonzero limiting distance; the code does not assume thermalization occurs.
 
 ## 4. Build the conditional Scrooge target
 
-First define the energy-diagonal density matrix
+First define the energy-dephased density matrix
 
-$$\sigma=\sum_\alpha p_\alpha|E_\alpha\rangle\langle E_\alpha|.$$
+$$\sigma=\sum_b\Pi_b|\psi_0\rangle\langle\psi_0|\Pi_b,$$
 
-This definition is exact for the target chosen here. If there are coherences
-between degenerate energy eigenkets, sigma need not be the physical infinite-time
-average; those coherences are not included in this target.
+where Pi_b projects onto a full degenerate energy subspace. The calculation
+retains coherences inside each block. Without degeneracies this reduces to
+sum_alpha p_alpha |E_alpha><E_alpha|. See NORM_DIAGNOSTICS.md for the numerical
+energy grouping tolerance and its effect on the independent eigenvector-phase
+RP reference, which remains the definition of the temporal comparison.
 
 The full basis is ordered as $|z\rangle_B\otimes|a\rangle_A$, with integer
 label z*DA+a, so a full ket reshapes to `(DB,DA)`. The default NA=4 Majoranas

@@ -95,6 +95,8 @@ def parse_args():
                         help='Read/write eigenvalues and eigenvectors for repeat analysis')
     parser.add_argument('--cache-projected', action=argparse.BooleanOptionalAction, default=False,
                         help='Save per-state projected intermediate arrays in addition to final results')
+    parser.add_argument('--degeneracy-tolerance', type=float, default=None,
+                        help='Absolute energy-block tolerance for diagnostics and coherent dephasing; default uses floating-point precision')
     parser.add_argument('--gap-k-max', type=int, default=1,
                         help='Exact spectral gap diagnostics through this order; 0 disables; capped by gap-max-sums')
     parser.add_argument('--gap-max-sums', type=positive_int, default=5_000_000,
@@ -113,6 +115,8 @@ def parse_args():
             args.dt = positive_float(args.dt)
         except (ValueError, argparse.ArgumentTypeError):
             parser.error('--dt must be auto or a finite positive number')
+    if args.degeneracy_tolerance is not None and (not np.isfinite(args.degeneracy_tolerance) or args.degeneracy_tolerance < 0):
+        parser.error('--degeneracy-tolerance must be finite and nonnegative')
     if args.gap_k_max < 0:
         parser.error('--gap-k-max must be nonnegative')
     if args.thermalization_fraction is not None and args.thermalization_fraction >= 1:
@@ -272,6 +276,7 @@ def main():
         dt = min(.1, .5*max_dt) if args.dt == 'auto' else args.dt
         diagnostics = tf.spectral_sampling_diagnostics(evals, args.k_max, dt)
         diagnostics['warnings'] = []
+        diagnostics['degeneracy'] = tf.degeneracy_diagnostics(evals, pops, ks, args.degeneracy_tolerance)
         if args.verbose:
             print(f'Rank {rank}, realization {r}: bandwidth={diagnostics["bandwidth"]:.6g}, '
                   f'Nyquist bound dt<{max_dt:.6g}, using dt<={dt:.6g}', flush=True)
@@ -284,6 +289,9 @@ def main():
                 print(f'WARNING: rank {rank}, realization {r}: {warning}', flush=True)
         temporal = tf.temporal_distance_continuous(evals, pops, ks, times, dt=dt)
         local_tr[i] = temporal['distance']
+        factors = np.array(diagnostics['degeneracy']['hs_partial_trace_factors'])
+        diagnostics['hs_partial_trace_max_violation'] = np.maximum(
+            local_tr[i, :, :1]*factors-local_tr[i], 0).max(axis=0).tolist()
         diagnostics['dt_effective'] = float(temporal['dt_effective'])
         centered_energies = evals-evals[0]
         mean_energy = float(pops @ centered_energies)
@@ -314,8 +322,10 @@ def main():
                 if args.verbose:
                     print(f'Rank {rank}, k={k} gap diagnostic: {gap}', flush=True)
         t3 = perf_counter()
-        target = pf.cond_scr_moment(evecs, pops, args.n_scr, ks, DA, rng(1),
-                    note=scr_note, basis_indices=indices, full_dimension=D, symmetric=True, cache_dir=cache_dir)
+        dephased_vectors, dephased_pops = tf.energy_dephased_components(
+            evals, evecs, coefficients, diagnostics['degeneracy']['energy_tolerance'])
+        target = pf.cond_scr_moment(dephased_vectors, dephased_pops, args.n_scr, ks, DA, rng(1),
+                    note=scr_note+'_dephased_tol'+str(diagnostics['degeneracy']['energy_tolerance']), basis_indices=indices, full_dimension=D, symmetric=True, cache_dir=cache_dir)
         t4 = perf_counter()
         sample_times = times.copy()
         if args.projected_sampling == 'stratified':

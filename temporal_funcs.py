@@ -433,3 +433,99 @@ def temporal_distance_continuous(evals, pops, k_series, tau_series,
         raise ValueError('Quadrature produced a negative squared distance; decrease --dt')
     return {'distance': np.sqrt(np.maximum(squared, 0)),
             'distance_squared': squared, 'dt_effective': np.array(h)}
+
+
+def degeneracy_diagnostics(evals, pops, k_series, tolerance=None):
+    """Diagnose unresolved energy blocks and their contributions to RP error.
+
+    The RP reference independently randomizes each supplied eigenvector phase.
+    Exact time evolution instead gives one common phase to a degenerate energy
+    block. If that block has total population q_b, independently randomizing
+    block phases gives purity P_RP,k(q). Therefore
+    P_RP,k(q)-P_RP,k(p) is the nondecaying squared-error contribution due to
+    energy degeneracy alone. It is exact at k=1; additional equal k-energy sums
+    may increase the asymptotic error for k>1. This is a diagnostic, not a change
+    to the RP reference, populations, eigenvectors, or time evolution.
+
+    evals and pops are finite one-dimensional arrays of equal length; pops is
+    nonnegative and normalized. k_series contains positive integer orders.
+    tolerance is a nonnegative absolute energy tolerance. None uses
+    64*machine_epsilon*max(1,max(abs(evals)),energy_width). Blocks are anchored
+    to their first energy to avoid chaining nearby but resolved levels together.
+    A detected block is a numerical hypothesis, not proof of an exact symmetry.
+    Repeat with a smaller tolerance if a weak perturbation physically splits it.
+
+    Returns a JSON-compatible dictionary with block multiplicities/populations,
+    RP purities, estimated degeneracy-only Frobenius floors, and the conservative
+    dimension-dependent partial-trace factors D**(-(k-1)/2). D is the supplied
+    eigenbasis dimension, not the number of degenerate blocks.
+
+    Rotating eigenvectors inside a degenerate block preserves its population q
+    but can change individual p and hence this eigenvector-RP reference. This
+    basis dependence must not be confused with a physical change in evolution.
+    """
+    import random_phase as rp
+    energies, probabilities = np.asarray(evals, float), np.asarray(pops, float)
+    ks = np.asarray(k_series, int)
+    if (energies.ndim != 1 or energies.size == 0 or probabilities.shape != energies.shape
+            or not np.all(np.isfinite(energies)) or not np.all(np.isfinite(probabilities))
+            or np.any(probabilities < 0) or not np.isclose(probabilities.sum(), 1)
+            or ks.ndim != 1 or len(ks) == 0 or np.any(ks < 1)):
+        raise ValueError('Need finite energies, normalized populations and positive moment orders')
+    if tolerance is None:
+        tolerance = 64*np.finfo(float).eps*max(1., float(np.max(np.abs(energies))), float(np.ptp(energies)))
+    if not np.isfinite(tolerance) or tolerance < 0:
+        raise ValueError('Energy tolerance must be finite and nonnegative')
+    order = np.argsort(energies)
+    energies, probabilities = energies[order], probabilities[order]
+    counts, weights, centers = [], [], []
+    start = 0
+    for stop in range(1, len(energies)+1):
+        if stop == len(energies) or energies[stop]-energies[start] > tolerance:
+            counts.append(stop-start)
+            weights.append(float(probabilities[start:stop].sum()))
+            centers.append(float(energies[start:stop].mean()))
+            start = stop
+    baseline = rp.rpe_square_2norm(probabilities, int(ks.max()))[ks-1]
+    block_purity = rp.rpe_square_2norm(np.array(weights), int(ks.max()))[ks-1]
+    floors = np.sqrt(np.maximum(block_purity-baseline, 0))
+    return {'energy_tolerance': float(tolerance), 'number_of_energy_blocks': len(counts),
+            'degenerate_blocks': int(np.count_nonzero(np.array(counts) > 1)),
+            'block_multiplicities': counts, 'block_populations': weights,
+            'block_energies': centers, 'rp_purities': baseline.tolist(),
+            'degeneracy_floor_lower_bounds': floors.tolist(),
+            'hs_partial_trace_factors': (len(evals)**(-(ks-1)/2)).tolist(),
+            'reference': 'independent phases per supplied energy eigenvector'}
+
+
+def energy_dephased_components(evals, evecs, coefficients, tolerance=None):
+    """Represent the energy-dephased state without losing degenerate coherences.
+
+    For a pure initial ket, the true infinite-time first moment is
+    sigma=sum_b Pi_b |psi0><psi0| Pi_b, where Pi_b projects onto an entire
+    degenerate energy subspace. An arbitrary eigenvector-by-eigenvector diagonal
+    approximation discards physical coherences within that subspace.
+
+    Return (vectors, populations), with sigma=(vectors*populations)@vectors^dagger.
+    Each nonzero block contributes one normalized ket Pi_b|psi0>/sqrt(q_b)
+    and its population q_b. Rows retain the original sector computational basis.
+    evecs has eigenkets as columns, coefficients=<E|psi0>, and evals supplies
+    their energies. The tolerance groups numerically unresolved energies as in
+    degeneracy_diagnostics; a physical small splitting requires a smaller value.
+    No full density matrix is formed. With no detected degeneracy this returns
+    the original eigenvectors and their populations, avoiding unnecessary work.
+    """
+    populations = np.abs(coefficients)**2
+    report = degeneracy_diagnostics(evals, populations, [1], tolerance)
+    if report['degenerate_blocks'] == 0:
+        return evecs, populations
+    order = np.argsort(evals)
+    vectors, weights = [], []
+    start = 0
+    for count, q in zip(report['block_multiplicities'], report['block_populations']):
+        indices = order[start:start+count]
+        if q > 0:
+            vectors.append((evecs[:, indices]@coefficients[indices])/np.sqrt(q))
+            weights.append(q)
+        start += count
+    return np.column_stack(vectors), np.array(weights)

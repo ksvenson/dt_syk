@@ -25,6 +25,7 @@ vacuum product state; this is fixed, not a command-line parameter.
 | `--cache-hamiltonian` / `--no-cache-hamiltonian` | Off | Enable/disable dense Hamiltonian cache reads and writes |
 | `--cache-eigensystem` / `--no-cache-eigensystem` | On | Enable/disable eigenvalue/eigenvector caching |
 | `--cache-projected` / `--no-cache-projected` | Off | Enable/disable redundant per-state intermediate caches |
+| `--degeneracy-tolerance` | Automatic machine-precision scale | Absolute energy-block tolerance for diagnostics and coherent energy dephasing |
 | `--gap-k-max` | 1 | Compute minimum k-sum gaps through this order, up to k_max; 0 disables |
 | `--gap-max-sums` | 5000000 | Skip an order if its number of k-sums exceeds this cap |
 | `--gap-lines` | Off | Plot resolved, in-window median inverse-gap references on temporal curves |
@@ -173,3 +174,6 @@ records warning flags per realization and analysis wall time, in addition to
 curves, reporting axes, gap references, threshold times and parameters. Analysis
 wall time excludes final archive writing and plotting; the Slurm timing CSV
 continues to record the complete launcher duration, including plotting.
+
+See NORM_DIAGNOSTICS.md for trace versus Frobenius norm bounds, degeneracy
+floor estimates, and preservation of coherences in the energy-dephased target.
