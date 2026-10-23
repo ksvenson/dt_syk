@@ -7,7 +7,7 @@
 #   ./submit_sweep.sh --dry-run       print the sbatch commands, submit nothing
 #   ./submit_sweep.sh --chain         serialise the g values within each N
 #   ./submit_sweep.sh --N 14 16       restrict to these system sizes
-#   ./submit_sweep.sh --g 0 100       restrict to these couplings
+#   ./submit_sweep.sh --g 0 1       restrict to these couplings
 #----------------------------------------------------------------------
 set -o pipefail
 
@@ -16,15 +16,17 @@ QUEUE=normal
 JOBSCRIPT=syk_job.slurm
 MANIFEST=sweep_manifest.csv
 
-N_VALUES=(16 17 19)
-G_VALUES=(0 1 10 100)
+N_VALUES=(16 18 20)
+G_VALUES=(0 0.25 0.5 0.75 1)
 
 # Per-N resources: "<nodes> <tasks> <walltime>".
-# Keep <tasks> a divisor of `realizations` in syk_temp_proj.py, or the job
+# The default is 128 realizations, independent of rank count. Keep <tasks>
+# a divisor of the realization count for balanced work; otherwise the job
 # runs at the speed of whichever rank drew an extra realization.
 # These times are for `log_tmax = 5`.
 resources_for_N() {
     case "$1" in
+        12) echo "1 128 00:30:00" ;;
         16) echo "1 128 00:30:00" ;;
         17) echo "1 128 00:30:00" ;;
         18) echo "1 128 00:30:00" ;;
@@ -137,3 +139,4 @@ cat <<'EOF'
   scontrol show reservation          # maintenance window blocking long jobs?
   ./collect_timings.sh               # once things finish
 EOF
+
