@@ -48,7 +48,17 @@ def SYK_numpy(q, rng, J=1, subspace=None, note=None, require_cache=False):
 
 
 def SYK42(g, rng, J=1, subspace=None):
-    return SYK(4, rng, J=J, subspace=subspace) + (g / (2 * dm.config.L)) * SYK(2, rng, J=J, subspace=subspace)
+    """Interpolate between SYK4 and SYK2 as (1-g)*H4+g*H2, 0<=g<=1.
+
+    Each component retains SYK's existing q-dependent random-coupling
+    normalization and common J scale. g is dimensionless; there is no extra
+    1/N factor. Both components are drawn in the fixed order H4 then H2 so
+    the same seed gives the same component Hamiltonians across the slider.
+    The total spectral width need not stay constant as g changes.
+    """
+    if not np.isfinite(g) or not 0 <= g <= 1:
+        raise ValueError('g must be a finite slider value between zero and one')
+    return (1-g)*SYK(4, rng, J=J, subspace=subspace) + g*SYK(2, rng, J=J, subspace=subspace)
 
 
 @ut.cache('npy', 'SYK42_numpy_H')

@@ -24,7 +24,7 @@ if __name__ == '__main__':
     # SYK Parameters
     N = 2 * dm.config.L
     q = 4
-    g = 1
+    g = .5
     realizations = 100
     H_str = 'SYK42'
 
@@ -209,4 +209,5 @@ if __name__ == '__main__':
             )
         fig.suptitle(p_str, y=1.1)
         fig.savefig(os.path.join(ut.FIG_DIR, 'min_eng_diffs_' + exp_note('X', 'X') + f'_dr{realizations}.svg'), **ut.FIG_SAVE_OPTIONS)
+
 

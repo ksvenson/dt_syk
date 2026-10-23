@@ -39,7 +39,7 @@ class DriverTests(unittest.TestCase):
         def hamiltonian(g, rng, subspace=None, note=None):
             calls.append(g)
             parts, _ = syk_components(2*dm.config.L, rng, 'even' if subspace else 'full')
-            return parts[0]+g/(2*dm.config.L)*parts[1]
+            return (1-g)*parts[0]+g*parts[1]
         factory.SYK42_numpy = hamiltonian
         default = ut.CACHE_DIR
         patches = {'dynamite': dm, 'dynamite.subspaces': spaces,
@@ -48,10 +48,13 @@ class DriverTests(unittest.TestCase):
             path = Path(__file__).resolve().parents[1]/'syk_temp_proj.py'
             spec = importlib.util.spec_from_file_location('driver_under_test', path)
             driver = importlib.util.module_from_spec(spec); spec.loader.exec_module(driver)
-            argv = ['syk_temp_proj.py', '--N', '8', '--g', '10', '--realizations', '2',
+            argv = ['syk_temp_proj.py', '--N', '8', '--g', '.5', '--realizations', '2',
                     '--tmax', '4', '--n-scr', '8', '--cache-dir', directory, '--no-plots',
                     '--gap-k-max', '3', '--gap-max-sums', '50', '--gap-lines',
                     '--thermalization-fraction', '.5', '--check-dt']
+            with mock.patch.object(sys, 'argv', argv+['--g','1.1']), mock.patch('sys.stderr'):
+                with self.assertRaises(SystemExit):
+                    driver.parse_args()
             with mock.patch.object(sys, 'argv', argv), mock.patch('builtins.print') as console:
                 driver.main()
                 self.assertEqual(console.call_count, 4)

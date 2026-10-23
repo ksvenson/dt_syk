@@ -36,7 +36,7 @@ def main():
 
     If --bandwidth-N is supplied, independently construct SYK4 and SYK2 using
     explicit Majorana actions in even parity, diagonalize their combinations
-    at g=0,1,10,100, and report the third-moment time-spacing bound. This uses
+    at g=0,0.25,0.5,1, and report the third-moment time-spacing bound. This uses
     the production base seed and realization zero. Results are printed as JSON.
     Use one numerical-library thread for comparison with a single MPI process."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -77,8 +77,8 @@ def main():
         parts, _ = syk_components(args.bandwidth_N, np.random.default_rng(
             np.random.SeedSequence(628**3, spawn_key=(0, 0))))
         report['bandwidth_reference'] = []
-        for g in (0, 1, 10, 100):
-            values = eigvalsh(parts[0]+g/args.bandwidth_N*parts[1])
+        for g in (0, .25, .5, 1):
+            values = eigvalsh((1-g)*parts[0]+g*parts[1])
             W = float(np.ptp(values))
             report['bandwidth_reference'].append({'N': args.bandwidth_N, 'g': g,
                 'bandwidth': W, 'k3_nyquist_dt': np.pi/(3*W)})

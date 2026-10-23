@@ -49,7 +49,7 @@ class ReferenceTests(unittest.TestCase):
         import dynamite.subspaces as ss
         import hamiltonian_factory as hf
         dm.config.L = 4
-        seed, g, N = 91, 10., 8
+        seed, g, N = 91, .5, 8
         full = hf.SYK42_numpy.__wrapped__(g, np.random.default_rng(seed))
         sector = ss.Parity('even', L=4)
         indices = sector.idx_to_state(np.arange(2**3))
@@ -57,7 +57,13 @@ class ReferenceTests(unittest.TestCase):
         assert_allclose(compact, full[np.ix_(indices, indices)], atol=1e-14)
         parts, mapping = syk_components(N, np.random.default_rng(seed), 'even')
         assert_allclose(indices, mapping)
-        assert_allclose(compact, parts[0]+g/N*parts[1], atol=1e-14)
+        assert_allclose(compact, (1-g)*parts[0]+g*parts[1], atol=1e-14)
+        for slider in (0., .25, 1.):
+            actual = hf.SYK42_numpy.__wrapped__(slider, np.random.default_rng(seed), subspace=sector)
+            assert_allclose(actual, (1-slider)*parts[0]+slider*parts[1], atol=1e-14)
+        for bad in (-.1,1.1,np.nan):
+            with self.assertRaises(ValueError):
+                hf.SYK42(bad,np.random.default_rng(seed),subspace=sector)
 
 
 if __name__ == '__main__':

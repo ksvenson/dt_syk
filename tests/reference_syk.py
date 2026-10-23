@@ -27,7 +27,7 @@ def syk_components(N, rng, sector='even'):
     Returns
     -------
     matrices : list of two complex arrays
-        [H4,H2], without the g/N factor. For q=4 or 2 the coefficient of
+        [H4,H2], before applying the slider weights. For q=4 or 2 the coefficient of
         chi_i1...chi_iq is i**(q/2)*sqrt((2/N)**(q-1)*(q-1)!/q)*J_edge,
         with J_edge standard normal. Each Majorana squares to identity:
         chi_2j=Z_0...Z_(j-1)X_j and chi_(2j+1)=Z_0...Z_(j-1)Y_j.

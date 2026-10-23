@@ -23,9 +23,9 @@ reconstruction of the repository's Majorana and coupling convention gives:
 | g | W | k=3 sufficient bound |
 |---:|---:|---:|
 | 0 | 12.946966 | dt < 0.080884 |
-| 1 | 12.982183 | dt < 0.080664 |
-| 10 | 15.259279 | dt < 0.068627 |
-| 100 | 78.355908 | dt < 0.013365 |
+| 0.25 | 10.871800 | dt < 0.096322 |
+| 0.5 | 11.344495 | dt < 0.092309 |
+| 1 | 18.544669 | dt < 0.056469 |
 
 Thus dt=1 substantially exceeds the conservative resolution bound, and even
 0.1 exceeds it for these examples. `benchmark_kernels.py --bandwidth-N 24`
@@ -164,9 +164,9 @@ node/rank count. Keep all parameters fixed between comparisons. For example,
 under a 128-rank allocation:
 
 ```bash
-ibrun python3 syk_temp_proj.py --N 24 --g 10 --realizations 128 \
+ibrun python3 syk_temp_proj.py --N 24 --g 0.5 --realizations 128 \
   --tmax 1000 --dt auto --projected-dt 1 --check-dt \
-  --cache-dir computation_cache/pilot-g10 --no-plots
+  --cache-dir computation_cache/pilot-g0p5 --no-plots
 ```
 
 Inspect per-rank JSON stage timings, dt refinement errors, and peak memory from
@@ -175,8 +175,8 @@ T; Hamiltonian construction, diagonalization and Scrooge target construction
 are one-time costs. Include plotting/I/O and slowest-rank margins when estimating
 a T=100,000 production job. Validate a smaller case with `--parity full` using
 separate caches, and test the projected sampling seed/width before interpreting
-fine features. Repeat the pilot at the largest g, because its overlap step can
-be substantially smaller. Scrooge sampling uncertainty is not included in the
+fine features. Repeat pilots across the slider because spectral width and integrability
+change; the overlap step can differ. Scrooge sampling uncertainty is not included in the
 plotted disorder SEM; check n_scr refinement independently.
 
 The older `projected_computation.py` refers to removed/nonexistent `proj_moment`

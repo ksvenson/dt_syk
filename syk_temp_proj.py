@@ -1,4 +1,4 @@
-"""SYK4 + (g/N) SYK2: continuous temporal and sampled projected ensembles."""
+"""(1-g) SYK4 + g SYK2: continuous temporal and sampled projected ensembles."""
 import argparse
 import json
 import os
@@ -72,7 +72,7 @@ def parse_args():
     Hilbert-space dimensions. NA must be even and no larger than N."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--N', type=validate_N, required=True, help='Even number of Majorana modes')
-    parser.add_argument('--g', type=float, required=True, help='Coefficient g in H4+(g/N)H2')
+    parser.add_argument('--g', type=float, required=True, help='Dimensionless slider in (1-g)H4+g H2, between zero and one')
     parser.add_argument('--dt', default='auto', help='Temporal quadrature max step: auto or a positive number')
     parser.add_argument('--projected-dt', type=positive_float, default=1., help='Projected stratum width; independent of --dt')
     parser.add_argument('--projected-sampling', choices=('stratified', 'grid'), default='stratified', help='stratified: one uniform random time per interval; grid: regular endpoints including zero')
@@ -108,8 +108,8 @@ def parse_args():
     args = parser.parse_args()
     if args.NA % 2 or args.NA > args.N:
         parser.error('NA must be even and no larger than N')
-    if not np.isfinite(args.g) or args.seed < 0 or args.time_seed < 0:
-        parser.error('g must be finite; seeds must be nonnegative')
+    if not np.isfinite(args.g) or not 0 <= args.g <= 1 or args.seed < 0 or args.time_seed < 0:
+        parser.error('g must lie between zero and one; seeds must be nonnegative')
     if args.dt != 'auto':
         try:
             args.dt = positive_float(args.dt)
@@ -177,7 +177,7 @@ def plot_results(times, temporal, projected, ks, path, title, gap_times=None, fr
 def main():
     """Run the two ensemble comparisons for each disorder realization.
 
-    In units with hbar=1, construct H=H_SYK4+(g/N)H_SYK2 and diagonalize it in
+    In units with hbar=1, construct H=(1-g)H_SYK4+g H_SYK2 and diagonalize it in
     even parity by default. The initial state is |0>, so its energy-basis
     coefficients are c_alpha=<E_alpha|0> and populations p_alpha=|c_alpha|**2.
 
@@ -235,7 +235,7 @@ def main():
     n_intervals = max(1, int(np.ceil(args.tmax/args.projected_dt)))
     times = np.linspace(0, args.tmax, n_intervals+1)
     width = times[1]
-    run_note = (f'N{args.N}_g{args.g}_parity{args.parity}_seed{args.seed}'
+    run_note = (f'mix_N{args.N}_g{args.g}_parity{args.parity}_seed{args.seed}'
                 f'_R{args.realizations}_DA{DA}_k{args.k_max}_T{args.tmax}'
                 f'_dt{args.dt}_pdt{args.projected_dt}_ps{args.projected_sampling}'
                 f'_ts{args.time_seed}_scr{args.n_scr}_check{int(args.check_dt)}'
@@ -253,7 +253,7 @@ def main():
               f'{n_intervals} projected strata; temporal dt={args.dt}', flush=True)
     for i, r in enumerate(tasks):
         rng = lambda stream: np.random.default_rng(np.random.SeedSequence(args.seed, spawn_key=(int(r), stream)))
-        h_note = f'SYK42_N{args.N}_g{args.g}_base-seed{args.seed}_r{r}_parity{args.parity}'
+        h_note = f'SYK42mix_N{args.N}_g{args.g}_base-seed{args.seed}_r{r}_parity{args.parity}'
         scr_note = f'{h_note}_psi00_DA{DA}_scr{args.n_scr}_k{args.k_max}_sym'
         t0 = perf_counter()
         eig_hit = args.cache_eigensystem and la.eig_system.cache_exists(note=h_note, cache_dir=cache_dir)
@@ -348,7 +348,7 @@ def main():
         timing = {'hamiltonian_seconds': t1-t0, 'diagonalization_seconds': t2-t1,
                   'temporal_seconds': gap_start-t2, 'gap_seconds': t3-gap_start, 'scrooge_seconds': t4-t3,
                   'projected_seconds': t5-t4, 'total_seconds': t5-t0,
-                  'eigensystem_cache_hit': eig_hit, 'rank': rank, 'realization': int(r), 'parameters': vars(args),
+                  'eigensystem_cache_hit': eig_hit, 'rank': rank, 'realization': int(r), 'parameters': vars(args), 'hamiltonian_convention': '(1-g)*SYK4+g*SYK2',
                   'sampling_diagnostics': diagnostics}
         with open(os.path.join(cache_dir, f'timing_{run_note}_r{r}.json'), 'w') as f:
             json.dump(timing, f, indent=2)
@@ -394,7 +394,7 @@ def main():
                  analysis_wall_seconds=np.array(analysis_wall_seconds),
                  temporal_threshold_times=observed_times(temporal),
                  projected_threshold_times=observed_times(projected),
-                 metadata=np.array(json.dumps(vars(args))))
+                 metadata=np.array(json.dumps(dict(vars(args), hamiltonian_convention='(1-g)*SYK4+g*SYK2'))))
         print(f'Analysis complete: {args.realizations} realizations in {analysis_wall_seconds:.1f}s', flush=True)
         if sampling_warnings.any():
             print(f'WARNING: {int(sampling_warnings.sum())}/{args.realizations} realizations exceed the '

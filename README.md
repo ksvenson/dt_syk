@@ -1,6 +1,6 @@
 # Deep thermalization in SYK
 
-The production entry point is `syk_temp_proj.py`: diagonalize SYK4 + (g/N) SYK2,
+The production entry point is `syk_temp_proj.py`: diagonalize (1-g) SYK4 + g SYK2,
 compare continuous temporal moments with exact random-phase moments, and compare
 state-conditioned projected moments with conditional Scrooge moments.
 
@@ -19,7 +19,7 @@ benchmarks, sampling conventions, and cluster validation steps.
 
 ```bash
 # Small pilot in the configured dynamite environment
-python syk_temp_proj.py --N 12 --g 10 --realizations 1 --tmax 100 --check-dt
+python syk_temp_proj.py --N 12 --g 0.5 --realizations 1 --tmax 100 --check-dt
 
 # Existing TACC wrapper; dt controls overlaps, projected-dt controls full states
 sbatch -t 48:00:00 syk_job.slurm 24 10 --dt auto --projected-dt 1

@@ -109,9 +109,9 @@ if __name__ == '__main__':
     # No arguments retain the original .npy cache plotting workflow.
     # Sweep Parameters
     N_series = np.arange(16, 24+2, 2)
-    g_series = np.array([0, 10, 100], dtype=float)
+    g_series = np.array([0, 0.5, 1], dtype=float)
     # N_series = np.arange(16, 18+2, 2)
-    # g_series = np.array([0, 10], dtype=float)
+    # g_series = np.array([0, 0.5], dtype=float)
 
     # Held constant during sweep
     k_series = np.arange(3) + 1

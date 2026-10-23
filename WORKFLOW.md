@@ -9,7 +9,7 @@ hbar = 1.
 
 For each disorder realization, construct
 
-$$H=H_4+\frac{g}{N}H_2.$$
+$$H=(1-g)H_4+gH_2,\qquad 0\le g\le1.$$
 
 Here N counts Majorana modes and L=N/2 counts two-level sites. The full
 Hilbert-space dimension is D=2^L. With the current vacuum initial state
