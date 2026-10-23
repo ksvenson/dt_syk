@@ -281,3 +281,17 @@ threshold gives a direct comparison of the curves within their sampled window.
 
 See PARAMETERS.md for the precise definitions, all controls and defaults, storage
 estimates, and examples. `thermalization.py` documents the calculations.
+
+
+## Instantaneous Scrooge comparisons
+
+The evolved states are also compared with a single Scrooge ensemble of
+rho_A(t), computed from that same state's reduced density matrix, and with
+the generalized Scrooge ensemble of the full pure rho(t). The latter equals
+the projected ensemble exactly in the same bath basis, so its distance is
+analytically zero. The former has the same first moment but can differ at
+higher orders, including due to parity constraints. All projected comparisons
+use the same sampled times and running average of per-state distances.
+
+INSTANTANEOUS_SCROOGE.md gives the full construction, support-restricted Haar
+integration, analytic rank-one shortcuts, saved arrays and independent tests.

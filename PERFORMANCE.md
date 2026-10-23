@@ -110,8 +110,7 @@ the temporal curve remains a continuous quadrature estimate in either mode.
     Both enumeration paths reject excessive sum counts before allocation.
 11. Odd N previously silently became N-1 via integer division. It is rejected;
     the default sweep now uses 16,18,20 instead of 16,17,19. The Slurm wrapper
-    forwards analysis flags; the old plotting path now fills both missing arrays
-    with NaN, and the new archive plotting path uses saved metadata/time axes.
+    forwards analysis flags; archive plotting uses saved metadata/time axes for all four comparisons.
 
 ## Is 5.5 hours reasonable?
 
@@ -147,7 +146,8 @@ Scrooge quadrature formula with identical Haar samples; analytic k=1;
 random-phase recurrence versus brute-force moments; Simpson temporal quadrature
 versus exact energy-sum sinc formulas through k=3, including resonances;
 histograms versus explicit pair enumeration; and reference Hamiltonians versus
-dense Pauli products. Eighteen tests pass, including cache scheduling and timescale diagnostics. One dynamite factory test is
+dense Pauli products. Twenty-seven tests pass, including cache scheduling, norm hierarchies, degenerate
+coherences and instantaneous targets. One dynamite factory test is
 skipped here because dynamite/PETSc/SLEPc are unavailable. Python compilation
 and shell syntax checks pass. A serial orchestration smoke test using NumPy
 Hamiltonian and communicator substitutes also produced matching full/even

@@ -4,6 +4,9 @@ The production entry point is `syk_temp_proj.py`: diagonalize (1-g) SYK4 + g SYK
 compare continuous temporal moments with exact random-phase moments, and compare
 state-conditioned projected moments with conditional Scrooge moments.
 
+See [INSTANTANEOUS_SCROOGE.md](INSTANTANEOUS_SCROOGE.md) for the two new
+instantaneous targets, exact identities, sampling, and computational savings.
+
 See [NORM_DIAGNOSTICS.md](NORM_DIAGNOSTICS.md) for degeneracies, moment norms,
 and the energy-dephased reference.
 

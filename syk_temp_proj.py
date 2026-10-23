@@ -124,7 +124,8 @@ def parse_args():
     return args
 
 
-def plot_results(times, temporal, projected, ks, path, title, gap_times=None, fraction=None):
+def plot_results(times, temporal, projected, ks, path, title, gap_times=None, fraction=None,
+                 single=None, instantaneous_gse=None):
     """Plot disorder-averaged temporal and projected distances.
 
     Parameters
@@ -148,26 +149,44 @@ def plot_results(times, temporal, projected, ks, path, title, gap_times=None, fr
         If supplied, mark observed sustained crossings below this fraction
         of the initial mean distance, separately for each curve.
 
-    Two PNG figures are saved under utilities.FIG_DIR. Shading is the standard
+    single, instantaneous_gse : arrays or None
+        Optional running distances to single Scrooge(rho_A(t)) and generalized
+        Scrooge(rho(t)). Each has the same shape as projected. The latter is
+        exactly zero for the pure full input and is plotted with a linear
+        vertical axis; zero columns on other plots are explicitly labeled.
+
+    Up to four PNG figures are saved under utilities.FIG_DIR. Shading is the standard
     error across disorder realizations, with zero shading for a single
     realization. It is not a separate estimate of Scrooge or time-sampling
     uncertainty. This function does not recompute states or moments."""
     import matplotlib.pyplot as plt
     os.makedirs(ut.FIG_DIR, exist_ok=True)
-    for data, label, prefix in (
+    comparisons = [
         (temporal, r'$||\rho_{Temp}^{(k)}-\rho_{RP}^{(k)}||_2$', 'temp_rp_2norm'),
-        (projected, r'$\mathbb{E}_{t}\,||\rho_{Proj,t}^{(k)}-\rho_{Scr,cond}^{(k)}||_2$', 'proj_scr_2norm'),
-    ):
+        (projected, r'$\mathbb{E}_{t}\,||M_k(t)-G_k[\sigma]||_2$', 'proj_scr_2norm'),
+    ]
+    if single is not None:
+        comparisons.append((single,r'$\mathbb{E}_{t}\,||M_k(t)-S_k[\rho_A(t)]||_2$','proj_single_scr_2norm'))
+    if instantaneous_gse is not None:
+        comparisons.append((instantaneous_gse,r'$\mathbb{E}_{t}\,||M_k(t)-G_k[\rho(t)]||_2$','proj_instantaneous_gse_2norm'))
+    for data, label, prefix in comparisons:
         mean = data.mean(axis=0)
         sem = data.std(axis=0, ddof=1)/np.sqrt(len(data)) if len(data) > 1 else np.zeros_like(mean)
         fig, ax = plt.subplots()
         for j, k in enumerate(ks):
-            ax.plot(times[1:], mean[1:, j], label=f'k={k}')
+            if np.any(mean[1:,j] > 0) or not np.any(mean[1:] > 0):
+                ax.plot(times[1:], mean[1:, j], label=f'k={k}')
+            else:
+                ax.plot([],[],label=f'k={k} (exactly zero)')
             ax.fill_between(times[1:], np.maximum(mean[1:, j]-sem[1:, j], 0), mean[1:, j]+sem[1:, j], alpha=.3)
         th.annotate_timescales(ax, times, mean, ks,
                               gap_times=gap_times if prefix == 'temp_rp_2norm' else None,
                               fraction=fraction)
-        ax.set(xlabel=r'$\tau$', ylabel=label, xscale='log', yscale='log')
+        ax.set(xlabel=r'$\tau$', ylabel=label, xscale='log',
+               yscale='log' if np.any(mean[1:] > 0) else 'linear')
+        if not np.any(mean[1:] > 0):
+            ax.set_ylim(-.01,.01)
+            ax.text(.5,.7,'Exact zero for the specified target',transform=ax.transAxes,ha='center')
         ax.legend()
         fig.suptitle(title)
         fig.savefig(os.path.join(ut.FIG_DIR, prefix+'_'+path+'.png'), **ut.FIG_SAVE_OPTIONS)
@@ -175,7 +194,7 @@ def plot_results(times, temporal, projected, ks, path, title, gap_times=None, fr
 
 
 def main():
-    """Run the two ensemble comparisons for each disorder realization.
+    """Run temporal/RP and three projected-ensemble comparisons for each disorder realization.
 
     In units with hbar=1, construct H=(1-g)H_SYK4+g H_SYK2 and diagonalize it in
     even parity by default. The initial state is |0>, so its energy-basis
@@ -185,7 +204,10 @@ def main():
     spectral overlaps using temporal_distance_continuous. The projection
     branch constructs the conditional Scrooge target from the diagonal
     energy ensemble, evolves full states at separate sampled times, and
-    calculates each state's projected/Scrooge distance. It then averages
+    calculates each state's projected/Scrooge distance. The same evolved state
+    also supplies rho_A(t) for the single Scrooge target. The generalized target
+    of full pure rho(t) is identically the projected ensemble, so its distance
+    is set to zero analytically. It then averages
     these distances over sampled times, rather than first averaging projected
     moments and subsequently taking one distance.
 
@@ -245,6 +267,7 @@ def main():
     tasks = task_alloc[rank]
     local_tr = np.empty((len(tasks), len(times), len(ks)))
     local_ps = np.empty_like(local_tr)
+    local_single = np.empty_like(local_tr)
     local_gaps = np.full((len(tasks), len(ks)), np.nan)
     local_gap_times = np.full_like(local_gaps, np.nan)
     local_sampling_warnings = np.zeros(len(tasks), dtype=np.int64)
@@ -336,7 +359,7 @@ def main():
             evals, evecs, coefficients, sample_times, ks, DA, target,
             chunk=args.chunk, note=f'{run_note}_r{r}', basis_indices=indices,
             full_dimension=D, symmetric=True, cache_dir=cache_dir,
-            cache_enabled=args.cache_projected)
+            cache_enabled=args.cache_projected, instantaneous=True, n_scr=args.n_scr, rng=rng(3))
         distances = sampled['2norm']
         if args.projected_sampling == 'stratified':
             local_ps[i, 0] = distances[0]
@@ -344,6 +367,17 @@ def main():
         else:
             # Explicitly retain the old discrete ensemble convention for comparison.
             local_ps[i] = np.cumsum(distances, axis=0)/np.arange(1, len(times)+1)[:, None]
+        single_distances = sampled['single_scr_2norm']
+        if args.projected_sampling == 'stratified':
+            local_single[i,0] = single_distances[0]
+            local_single[i,1:] = np.cumsum(single_distances[1:],axis=0)/np.arange(1,n_intervals+1)[:,None]
+        else:
+            local_single[i] = np.cumsum(single_distances,axis=0)/np.arange(1,len(times)+1)[:,None]
+        diagnostics['instantaneous_targets'] = {
+            'single_scrooge': 'rho_A(t), analytic k=1 and rank-one inputs; independent Haar samples otherwise',
+            'n_scr_per_mixed_state': args.n_scr,
+            'generalized_scrooge': 'rho(t) is pure: exactly the projected ensemble for all k',
+            'averaging': 'same sampled times and distance-before-time-average convention as the fixed target'}
         t5 = perf_counter()
         timing = {'hamiltonian_seconds': t1-t0, 'diagonalization_seconds': t2-t1,
                   'temporal_seconds': gap_start-t2, 'gap_seconds': t3-gap_start, 'scrooge_seconds': t4-t3,
@@ -360,8 +394,10 @@ def main():
     offsets = np.r_[0, np.cumsum(counts[:-1])]
     temporal = np.empty((args.realizations, len(times), len(ks))) if rank == 0 else None
     projected = np.empty_like(temporal) if rank == 0 else None
+    single = np.empty_like(temporal) if rank == 0 else None
     comm.Gatherv(local_tr, [temporal, (counts, offsets)] if rank == 0 else None, root=0)
     comm.Gatherv(local_ps, [projected, (counts, offsets)] if rank == 0 else None, root=0)
+    comm.Gatherv(local_single, [single, (counts, offsets)] if rank == 0 else None, root=0)
     gap_counts = np.array([len(x) for x in task_alloc])*len(ks)
     gap_offsets = np.r_[0, np.cumsum(gap_counts[:-1])]
     gaps = np.empty((args.realizations, len(ks))) if rank == 0 else None
@@ -376,6 +412,8 @@ def main():
     if rank == 0:
         order = np.argsort(np.concatenate(task_alloc))
         temporal, projected = temporal[order], projected[order]
+        single = single[order]
+        instantaneous_gse = np.broadcast_to(np.array(0.),temporal.shape)
         gaps, gap_times = gaps[order], gap_times[order]
         sampling_warnings = sampling_warnings[order]
         analysis_wall_seconds = perf_counter()-run_started
@@ -387,13 +425,16 @@ def main():
             mean = data.mean(axis=0)
             return np.array([np.nan if (t := th.threshold_time(times, mean[:, j],
                 args.thermalization_fraction)) is None else t for j in range(len(ks))])
-        np.savez(result_path, tau_series=times, k_series=ks,
+        np.savez_compressed(result_path, tau_series=times, k_series=ks,
                  temp_rp_2norm=temporal, proj_scr_2norm=projected,
+                 proj_single_scr_2norm=single, proj_instantaneous_gse_2norm=instantaneous_gse,
                  moment_min_gaps=gaps, moment_gap_times=gap_times,
                  sampling_bound_warnings=sampling_warnings,
                  analysis_wall_seconds=np.array(analysis_wall_seconds),
                  temporal_threshold_times=observed_times(temporal),
                  projected_threshold_times=observed_times(projected),
+                 single_scrooge_threshold_times=observed_times(single),
+                 instantaneous_gse_threshold_times=observed_times(instantaneous_gse),
                  metadata=np.array(json.dumps(dict(vars(args), hamiltonian_convention='(1-g)*SYK4+g*SYK2'))))
         print(f'Analysis complete: {args.realizations} realizations in {analysis_wall_seconds:.1f}s', flush=True)
         if sampling_warnings.any():
@@ -405,7 +446,7 @@ def main():
             plot_results(times, temporal, projected, ks, run_note,
                          f'SYK42 N={args.N}, g={args.g}, R={args.realizations}, parity={args.parity}',
                          gap_times=gap_times if args.gap_lines else None,
-                         fraction=args.thermalization_fraction)
+                         fraction=args.thermalization_fraction, single=single, instantaneous_gse=instantaneous_gse)
 
 
 if __name__ == '__main__':

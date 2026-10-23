@@ -152,8 +152,7 @@ python plot_N_g_sweep.py --results tacc_cache/results*.npz \
   --gap-lines --thermalization-fraction 0.1
 ```
 
-Archived annotation settings are used unless a fraction is overridden. Archives
-without spectral diagnostics still plot normally. See WORKFLOW.md for the
+Archived annotation settings are used unless a fraction is overridden. Curves with no resolved spectral reference still plot normally. See WORKFLOW.md for the
 quantities represented by the two curves.
 
 
@@ -195,3 +194,13 @@ For independent disorder, the ensemble-mean variance is (1-g)^2 Var(H4)
 again. Compare energy-rescaled times if the goal is to separate this scale
 change from a change in dynamics. g=0 is pure quartic SYK; g=1 is the free
 quadratic endpoint, with additional energy-sum resonances expected.
+
+
+The two new instantaneous comparisons run by default alongside the fixed
+energy-dephased target. Their independent time-local Haar inputs use stream 3.
+The full-pure-input generalized target is evaluated as an exact identity, not
+sampled. The first moment of the single reduced-state target is also exact.
+See INSTANTANEOUS_SCROOGE.md for the formulas, parity constraint and sampling
+uncertainty. Production result archives are compressed; zero curves remain
+represented at their complete (realizations,times,k) shape without redundant
+MPI work or an extra allocated zero result cube.

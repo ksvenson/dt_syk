@@ -66,6 +66,11 @@ class DriverTests(unittest.TestCase):
                 archive = next(Path(directory).glob('results_*.npz'))
                 with np.load(archive) as data:
                     first = data['temp_rp_2norm'].copy()
+                    single = data['proj_single_scr_2norm'].copy()
+                    gse = data['proj_instantaneous_gse_2norm'].copy()
+                    self.assertEqual(single.shape,first.shape)
+                    assert_allclose(single[:,:,0],0,atol=0)
+                    assert_allclose(gse,0,atol=0)
                     self.assertEqual(data['moment_min_gaps'].shape, (2, 3))
                     self.assertTrue(np.isnan(data['moment_gap_times'][:, 2]).all())
                     self.assertEqual(data['temporal_threshold_times'].shape, (3,))
@@ -98,8 +103,8 @@ class DriverTests(unittest.TestCase):
                 with mock.patch.object(ut, 'FIG_DIR', directory):
                     plotting.plot_archives([str(archive)], gap_lines=True, fraction=.5)
                     driver.plot_results(np.arange(5.), first, first, np.arange(1,4),
-                                        'test', 'test', fraction=.5)
-                self.assertEqual(len(list(Path(directory).glob('*.png'))), 5)
+                                        'test', 'test', fraction=.5,single=single,instantaneous_gse=gse)
+                self.assertEqual(len(list(Path(directory).glob('*.png'))), 9)
 
 
 if __name__ == '__main__':
