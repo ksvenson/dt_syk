@@ -1,7 +1,7 @@
 # Computational workflow and independent checks
 
 This describes the production calculation in `syk_temp_proj.py` on the
-`optimize-temporal-sampling` branch. Its two final curves have different
+`optimize-temporal-sampling` branch. Its temporal and projected comparisons have different
 averaging procedures, specified below. Energies and times use units with
 hbar = 1.
 
@@ -33,6 +33,10 @@ state and Hamiltonian and is not a prescription for arbitrary initial states.
 
 ## 2. Compute the random-phase reference exactly
 
+Here RP means an ensemble with an independent phase for every numerical energy
+eigenvector, not one phase per degenerate energy block. See NORM_DIAGNOSTICS.md
+for the distinction and its relation to the physical energy-dephased state.
+
 The independent random-phase states are
 
 $$|\psi_{\boldsymbol\theta}\rangle
@@ -42,7 +46,7 @@ with each phase uniform on [0,2 pi). The kth moment is the phase average of
 $(|\psi_{\boldsymbol\theta}\rangle\langle\psi_{\boldsymbol\theta}|)^{\otimes k}$.
 We need its purity, not its full matrix:
 
-$$P_{\mathrm{RP},k}=\operatorname{Tr}[(\rho_{\mathrm{RP}}^{(k)})^2]
+$$P_{\mathrm{RP},k}=\mathrm{Tr}[(\rho_{\mathrm{RP}}^{(k)})^2]
 =\sum_{\substack{n_\alpha\ge0\\\sum_\alpha n_\alpha=k}}
 \left(\frac{k!}{\prod_\alpha n_\alpha!}\right)^2
 \prod_\alpha p_\alpha^{2n_\alpha}.$$
@@ -77,14 +81,14 @@ $$P_{T,k}(\tau)=\frac{2}{\tau^2}\int_0^\tau
 (\tau-u)|A(u)|^{2k}\,du.$$
 
 The overlap with the RP moment obeys
-$\operatorname{Tr}[\rho_T^{(k)}\rho_{\mathrm{RP}}^{(k)}]=P_{\mathrm{RP},k}$.
+$\mathrm{Tr}[\rho_T^{(k)}\rho_{\mathrm{RP}}^{(k)}]=P_{\mathrm{RP},k}$.
 Consequently the first curve is
 
 $$d_{T,k}(\tau)=\|\rho_T^{(k)}(\tau)-\rho_{\mathrm{RP}}^{(k)}\|_{\mathrm{HS}}
 =\sqrt{P_{T,k}(\tau)-P_{\mathrm{RP},k}}.$$
 
 Here the Hilbert-Schmidt norm means
-$\|X\|_{\mathrm{HS}}=\sqrt{\operatorname{Tr}(X^\dagger X)}$.
+$\|X\|_{\mathrm{HS}}=\sqrt{\mathrm{Tr}(X^\dagger X)}$.
 The returned key `'2norm'` elsewhere in the repository uses this same norm;
 it is not the trace norm or the largest singular value.
 
@@ -106,7 +110,7 @@ with explicit sums over ordered k-tuples alpha and beta:
 
 $$P_{T,k}(\tau)=\sum_{\boldsymbol\alpha,\boldsymbol\beta}
 \left(\prod_{j=1}^k p_{\alpha_j}p_{\beta_j}\right)
-\operatorname{sinc}^2\!\left[
+\mathrm{sinc}^2\!\left[
 \frac{\tau}{2}\sum_{j=1}^k(E_{\alpha_j}-E_{\beta_j})\right],$$
 
 where sinc(x)=sin(x)/x, with sinc(0)=1. NumPy uses a pi-scaled definition;
@@ -132,7 +136,7 @@ label z*DA+a, so a full ket reshapes to `(DB,DA)`. The default NA=4 Majoranas
 gives DA=4 and DB=D/DA. Measuring B in this computational basis defines
 
 $$\sigma_z=\langle z|\sigma|z\rangle,\quad
-q_z=\operatorname{Tr}\sigma_z,\quad
+q_z=\mathrm{Tr}\sigma_z,\quad
 \widehat\sigma_z=\sigma_z/q_z\quad(q_z>0).$$
 
 `conditional_covariances` returns the **unnormalized** matrices sigma_z
@@ -159,7 +163,7 @@ included in sigma_z and must not be multiplied in again.
 
 For k=1 the code uses the exact identity
 
-$$C_1=\sum_z\sigma_z=\operatorname{Tr}_B\sigma.$$
+$$C_1=\sum_z\sigma_z=\mathrm{Tr}_B\sigma.$$
 
 For k>1 the Haar integral is sampled. Its estimated trace fluctuates around
 one; the code does not renormalize it afterward. Zero-weight outcomes make
@@ -200,7 +204,7 @@ as well as the complex return amplitude. It does not take a time average.
 The global phase removed during state reconstruction has no effect on M_k.
 
 **Checks:** Tr(M_k(t))=1, positive semidefinite M_k(t),
-$M_1(t)=\operatorname{Tr}_B|\psi(t)\rangle\langle\psi(t)|$, finite values at
+$M_1(t)=\mathrm{Tr}_B|\psi(t)\rangle\langle\psi(t)|$, finite values at
 zero time, and equal distances in the full and symmetric bases. On a small
 system, full-space and even-sector evolution should give the same projected
 moments after the correct basis correspondence is applied.

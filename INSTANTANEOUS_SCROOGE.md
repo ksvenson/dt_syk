@@ -25,7 +25,7 @@ in NORM_DIAGNOSTICS.md:
 $$\sigma=\sum_b\Pi_b|\psi_0\rangle\langle\psi_0|\Pi_b,\qquad
 G_k[\sigma]=\sum_z q_z S_k[\sigma_z/q_z],$$
 
-where $\sigma_z=\langle z|\sigma|z\rangle$, $q_z=\operatorname{Tr}\sigma_z$, and
+where $\sigma_z=\langle z|\sigma|z\rangle$, $q_z=\mathrm{Tr}\sigma_z$, and
 $S_k$ is the kth Scrooge moment. The code obtains the conditional blocks directly
 from a collection of weighted pure kets representing sigma. It never builds the
 full D by D sigma. This target is fixed for a given disorder realization.
@@ -34,7 +34,7 @@ full D by D sigma. This target is fixed for a given disorder realization.
 
 The first new target is
 
-$$\rho_A(t)=\operatorname{Tr}_B|\psi(t)\rangle\langle\psi(t)|
+$$\rho_A(t)=\mathrm{Tr}_B|\psi(t)\rangle\langle\psi(t)|
 =\sum_z|v_z(t)\rangle\langle v_z(t)|,\qquad S_k[\rho_A(t)].$$
 
 It is one Scrooge ensemble on A, not a mixture indexed by bath outcomes.
