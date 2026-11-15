@@ -23,6 +23,16 @@ $$
 
 The remaining kets are orthogonal to the initial state, with zero initial
 population. The production temporal/RP comparison now uses this adapted basis.
+
+The adaptation preserves the entire initial pure ket. The occupied coefficient
+sqrt(q_b) is real because chi_b already contains the original complex phases.
+Within a block the transformation is V'=V U, c'=U^dagger c, and V'c'=Vc. Thus
+converting the adapted representation back to the computational basis returns
+the original |0...0> initial ket. Its pure energy-basis density matrix c'c'^dagger
+still contains off-diagonal terms between occupied blocks. The adapter does
+not replace that pure state with the mixed time-averaged sigma. Initial complex
+amplitudes are recorded in result metadata and timing JSON under `initial_state`.
+
 Equivalently its RP reference is
 
 $$

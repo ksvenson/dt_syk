@@ -19,6 +19,25 @@ def exact_moment(energies, populations, k, tau=None):
 
 
 class DegeneracyTests(unittest.TestCase):
+    def test_vacuum_is_not_dephased_and_retains_energy_block_coherences(self):
+        rng = np.random.default_rng(214)
+        V = np.linalg.qr(rng.normal(size=(4,4))+1j*rng.normal(size=(4,4)))[0]
+        energies = np.array([0.,0.,1.,1.])
+        vacuum = np.array([1.,0.,0.,0.],complex)
+        output = tf.initial_state_eigenbasis(energies,V,vacuum,0.)
+        W,c = output['evecs'],output['coefficients']
+        assert_allclose(W@c,vacuum,atol=1e-15)
+        coherent_energy_density = np.outer(c,c.conj())
+        # Different occupied energy blocks retain off-diagonal coherence even
+        # though the coefficient phase convention makes c real and positive.
+        self.assertGreater(abs(coherent_energy_density[0,2]),.01)
+        reconstructed = W@coherent_energy_density@W.conj().T
+        assert_allclose(reconstructed,np.outer(vacuum,vacuum.conj()),atol=1e-15)
+        dephased_reference = (W*abs(c)**2)@W.conj().T
+        self.assertGreater(np.linalg.norm(reconstructed-dephased_reference),.1)
+        # In particular, a density-matrix dephasing would fail this vacuum test.
+        self.assertLess(float(dephased_reference[0,0].real),.99)
+
     def test_initial_state_basis_preserves_hamiltonian_and_evolution(self):
         rng = np.random.default_rng(124)
         V = np.linalg.qr(rng.normal(size=(7,7))+1j*rng.normal(size=(7,7)))[0]

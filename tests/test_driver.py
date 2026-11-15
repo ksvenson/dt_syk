@@ -68,6 +68,9 @@ class DriverTests(unittest.TestCase):
                     self.assertIn('_rpenergyblocks_tol',archive.name)
                     metadata = json.loads(str(data['metadata']))
                     self.assertEqual(metadata['rp_reference'],'initial-state-adapted energy blocks')
+                    self.assertEqual(metadata['initial_state'],{
+                        'basis':'full computational basis','basis_labels':[0],
+                        'amplitudes_real':[1.],'amplitudes_imag':[0.]})
                     first = data['temp_rp_2norm'].copy()
                     single = data['proj_single_scr_2norm'].copy()
                     gse = data['proj_instantaneous_gse_2norm'].copy()
@@ -101,6 +104,8 @@ class DriverTests(unittest.TestCase):
                 self.assertIn('warnings', timing['sampling_diagnostics'])
                 basis = timing['sampling_diagnostics']['initial_state_eigenbasis']
                 self.assertLess(basis['initial_state_reconstruction_error'],1e-13)
+                self.assertEqual(timing['initial_state']['basis_labels'],[0])
+                self.assertEqual(timing['initial_state']['amplitudes_imag'],[0.])
             if importlib.util.find_spec('matplotlib') is not None:
                 import matplotlib
                 matplotlib.use('Agg')

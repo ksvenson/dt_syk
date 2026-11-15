@@ -29,6 +29,16 @@ are set to exactly zero. Below, evecs, evals, c_alpha and p_alpha refer to this
 adapted representation. The arbitrary unused basis completion does not affect
 the state or the RP ensemble. The raw cache is not overwritten.
 
+This is a change of coordinates, with V'=V U and c'=U^dagger c inside each
+energy block. Consequently V'c'=Vc=psi0: the initial ket remains the vacuum in
+the computational basis. Its phases are retained in the complex adapted basis
+kets, even though their occupied coefficients are real and nonnegative. The
+pure density matrix c'c'^dagger still has coherences between distinct occupied
+energy blocks. Dephasing would remove those coherences; the adapter does not.
+The physical dephased density matrix sigma is constructed only as the reference
+input for the fixed Scrooge target. Result metadata and per-realization JSON
+record the actual complex computational-basis amplitudes under `initial_state`.
+
 Numerically grouped energies use a common mean before rotating the block.
 The default tolerance is a machine-precision scale; zero requires literal
 equality. A genuine small physical splitting must be resolved with a smaller

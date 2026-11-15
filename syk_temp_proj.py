@@ -254,6 +254,14 @@ def main():
     # parity coordinates must never be reshaped directly into bath x subsystem.
     psi0 = np.zeros(dimension, dtype=np.complex128)
     psi0[np.flatnonzero(indices == 0)[0]] = 1
+    # Report the actual complex initial amplitudes in the computational basis,
+    # independently of any later choice of energy eigenvector phases.
+    nonzero_initial = np.flatnonzero(psi0)
+    initial_state_description = {
+        'basis': 'full computational basis',
+        'basis_labels': indices[nonzero_initial].tolist(),
+        'amplitudes_real': psi0[nonzero_initial].real.tolist(),
+        'amplitudes_imag': psi0[nonzero_initial].imag.tolist()}
 
     # Reporting endpoints are shared by both comparisons. The temporal
     # integration uses a finer grid; projected states have separate time draws.
@@ -308,6 +316,8 @@ def main():
 
         # 2. Adapt the eigenbasis to psi0 ONCE. Each occupied degenerate energy
         # block now has one occupied ket; all other coefficients in it are zero.
+        # Phases are retained in the complex basis kets: evecs@coefficients
+        # reconstructs the original psi0. No dephasing is applied to that ket.
         # Every subsequent calculation uses this same adapted eigensystem.
         adapted = tf.initial_state_eigenbasis(
             eigs['evals'], eigs['evecs'], psi0, args.degeneracy_tolerance)
@@ -451,6 +461,7 @@ def main():
                   'temporal_seconds': gap_start-t2, 'gap_seconds': t3-gap_start, 'scrooge_seconds': t4-t3,
                   'projected_seconds': t5-t4, 'total_seconds': t5-t0,
                   'eigensystem_cache_hit': eig_hit, 'rank': rank, 'realization': int(r), 'parameters': vars(args), 'hamiltonian_convention': '(1-g)*SYK4+g*SYK2',
+                  'initial_state': initial_state_description,
                   'sampling_diagnostics': diagnostics}
         with open(os.path.join(cache_dir, f'timing_{run_note}_r{r}.json'), 'w') as f:
             json.dump(timing, f, indent=2)
@@ -516,6 +527,7 @@ def main():
                  instantaneous_gse_threshold_times=observed_times(instantaneous_gse),
                  metadata=np.array(json.dumps(dict(vars(args), hamiltonian_convention='(1-g)*SYK4+g*SYK2',
                      rp_reference='initial-state-adapted energy blocks',
+                     initial_state=initial_state_description,
                      instantaneous_gse_evaluation='conditional density matrices',
                      energy_grouping='mean energy within each numerically degenerate block'))))
         print(f'Analysis complete: {args.realizations} realizations in {analysis_wall_seconds:.1f}s', flush=True)

@@ -453,6 +453,16 @@ def initial_state_eigenbasis(evals, evecs, psi0, tolerance=None):
     distinct energy component, and the first RP moment is the physical
     energy-dephased state sigma=sum_b Pi_b|psi0><psi0|Pi_b.
 
+    The INITIAL KET IS NOT DEPHASED. Within a block this is a unitary change
+    of coordinates: if V'=V U are the adapted eigenvectors, the coefficients
+    change from c to c'=U^dagger c, so V'c'=Vc. In particular a computational
+    vacuum input is still the computational vacuum after reconstruction.
+    The first adapted ket Pi_b|psi0>/sqrt(q_b) already contains the original
+    complex phases, which is why its coefficient can be the positive real
+    sqrt(q_b). The phases have moved into the basis kets, not been discarded.
+    Coherences between occupied energy blocks remain in |c'><c'|. The mixed
+    sigma above is only a later reference state; it never replaces psi0.
+
     Parameters
     ----------
     evals : real array, shape (D,)
@@ -534,6 +544,8 @@ def initial_state_eigenbasis(evals, evecs, psi0, tolerance=None):
             block[:, 0] *= -phase
             adapted_vectors[:, indices] = block
             rotated += 1
+        # The occupied basis ket already contains the phases of c. Its real
+        # coefficient reconstructs the same complex projected initial ket.
         adapted_coefficients[indices] = 0
         adapted_coefficients[indices[0]] = amplitude
     diagnostics = {
