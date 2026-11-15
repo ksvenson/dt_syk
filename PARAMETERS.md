@@ -198,9 +198,13 @@ quadratic endpoint, with additional energy-sum resonances expected.
 
 The two new instantaneous comparisons run by default alongside the fixed
 energy-dephased target. Their independent time-local Haar inputs use stream 3.
-The full-pure-input generalized target is evaluated as an exact identity, not
-sampled. The first moment of the single reduced-state target is also exact.
+The full-pure-input generalized target is calculated separately from conditional
+density matrices. It needs no Haar samples, because its conditional inputs are
+rank one; the numerical distance is still computed instead of fixed to zero.
+The first moment of the single reduced-state target is also evaluated exactly,
+and its numerical distance from the projected first moment is retained.
 See INSTANTANEOUS_SCROOGE.md for the formulas, parity constraint and sampling
-uncertainty. Production result archives are compressed; zero curves remain
-represented at their complete (realizations,times,k) shape without redundant
-MPI work or an extra allocated zero result cube.
+uncertainty. Production result archives are compressed. All computed comparison
+arrays have their complete (realizations,times,k) shape and are gathered across
+MPI ranks. Filenames include `gsenum` to distinguish these numerical checks
+from the former analytically filled zero arrays.

@@ -66,7 +66,9 @@ The steps for a batch of times are:
    and average their outer products with factor r/n_scr.
 5. Compare each target with M_k(t) before any time average.
 
-The first moment is exactly S_1[rho_A]=rho_A=M_1, so that distance is exactly zero.
+The first moment is exactly S_1[rho_A]=rho_A=M_1 mathematically. The code
+subtracts the two computed matrices and returns their numerical residual;
+it does not force the first-moment distance to zero.
 Rank-one inputs are also analytic for every k, including the initial product
 state. Only mixed inputs at higher orders require sampling.
 
@@ -118,13 +120,25 @@ g, N, chaos, or thermalization. This conclusion uses the generalized-Scrooge
 mixture defined by the same bath measurement basis. A different mixed global
 input or different bath basis would be a different calculation.
 
-The code implements the identity analytically. There is no D by D pure density
-matrix allocation, no per-outcome square root, and no sampling needed. The
-`generalized_scrooge_pure` function supplies the moment itself for independent
-small-system verification. Tests also construct the rank-one conditional blocks
-and apply the separately implemented Scrooge formula before summing them.
-The driver returns exact zeros without evaluating an identical moment twice.
-This plot is a consistency identity, not a thermalization diagnostic.
+The code now checks this identity numerically. `generalized_scrooge_pure`
+constructs the conditional density matrices R_z=|v_z><v_z|, computes their
+traces p_z, and evaluates the target independently as
+
+$$G_k[\rho(t)]=\sum_{z:p_z>0}p_z(R_z/p_z)^{\otimes k}.$$
+
+This calculation takes tensor products of density-matrix entries. The
+projected moment uses tensor products of normalized ket amplitudes, so the
+two sides follow separate numerical calculations. Their matrix difference
+and Frobenius norm are evaluated for every sampled time and moment order.
+No numerical distance is replaced with zero. Tests deliberately perturb the
+target to verify that a discrepancy reaches the saved results.
+
+For this pure full input, each conditional Scrooge ensemble is a single pure
+ket, so no Haar sampling or per-outcome square root is required. Only DA by DA
+conditional density blocks are formed; the full D by D rho(t) is never stored.
+Bath outcomes are handled in batches of 32 to limit temporary memory. This
+independent check adds computation, but its cost does not grow with n_scr.
+The plot remains a consistency check, rather than a thermalization diagnostic.
 
 ## Averaging, arrays and plots
 
@@ -141,17 +155,21 @@ The production NPZ now contains, each with shape (realizations,times,k):
 |---|---|
 | `proj_scr_2norm` | distance to fixed G_k[sigma_dephased] |
 | `proj_single_scr_2norm` | distance to S_k[rho_A(t)] |
-| `proj_instantaneous_gse_2norm` | distance to G_k[rho(t)]; exactly zero |
+| `proj_instantaneous_gse_2norm` | numerical distance to independently computed G_k[rho(t)]; expected to vanish |
 
 `temp_rp_2norm` retains its separate continuous temporal/RP meaning. The files
 also contain separate observed threshold-time arrays for the new curves.
-Archives use NPZ compression, which makes the analytically zero array cheap
-on disk. That array is broadcast from a scalar before saving, so it also does
-not require an additional full result cube in RAM or an MPI collection.
+All three projected-comparison arrays are genuinely computed, averaged over
+time, gathered across MPI ranks, and saved with NPZ compression. The numerical
+generalized comparison requires its own result array and MPI collection.
+New result and projected-intermediate filenames include `gsenum`, preventing
+reuse of the earlier analytic-zero intermediates. Metadata records
+`instantaneous_gse_evaluation` as `conditional density matrices`.
 
 A production run generates four figures; `plot_N_g_sweep.py --results ...`
 generates those four comparisons across N/g plus the original temporal-versus-
-fixed-target parametric plot. Exact-zero curves use a linear vertical axis or
-are labeled as exactly zero when other orders need a logarithmic axis. The
-per-realization projected stage duration includes constructing instantaneous
-single-Scrooge targets; these add work and require a new cluster timing pilot.
+fixed-target parametric plot. Numerical identity checks use linear vertical
+axes with automatic upper limits, showing roundoff residuals and any larger
+discrepancy. No fixed +/-0.01 range or assumed-exact-zero annotation is imposed.
+Per-realization projected timings include constructing both instantaneous
+targets and evaluating their numerical distances.

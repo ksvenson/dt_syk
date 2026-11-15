@@ -20,10 +20,10 @@ def plot_archives(paths, gap_lines=False, fraction=None):
 
     gap_lines optionally shows saved finite spectral reference medians only on
     the temporal plot. fraction optionally overrides the saved observed threshold.
-    The instantaneous generalized Scrooge comparison is an analytic identity for
-    a pure full input and uses a linear vertical axis so exact zeros are visible.
-    The single-Scrooge first moment is also exactly zero and is labeled explicitly
-    if the other moments require a logarithmic vertical axis.
+    The instantaneous generalized Scrooge comparison and the single-Scrooge
+    first moment should vanish mathematically. Their computed residuals use
+    linear vertical axes with automatic upper limits, so discrepancies remain
+    visible instead of being hidden by an assumed exact-zero annotation.
 
     Five figures are written under utilities.FIG_DIR. No states are recomputed.
     Incompatible archives or duplicate (N,g) configurations raise ValueError.
@@ -45,7 +45,8 @@ def plot_archives(paths, gap_lines=False, fraction=None):
             seen.add(pair)
             current = tuple(params.get(k) for k in ('NA','k_max','n_scr','seed','parity',
                 'projected_sampling','projected_dt','time_seed','tmax','hamiltonian_convention',
-                'rp_reference','energy_grouping','degeneracy_tolerance'))
+                'rp_reference','energy_grouping','degeneracy_tolerance',
+                'instantaneous_gse_evaluation'))
             if signature is not None and signature != current:
                 raise ValueError('Archives mix incompatible physical or sampling parameters')
             signature = current
@@ -67,8 +68,6 @@ def plot_archives(paths, gap_lines=False, fraction=None):
                 sem = samples.std(axis=0,ddof=1)[:,row]/np.sqrt(len(samples)) if len(samples)>1 else np.zeros_like(mean)
                 line, = ax.plot(times[1:],mean[1:],label=f'N={params["N"]}, R={len(samples)}')
                 ax.fill_between(times[1:],np.maximum(mean[1:]-sem[1:],0),mean[1:]+sem[1:],alpha=.2)
-                if not np.any(mean):
-                    line.set_label(f'N={params["N"]} (exactly zero)')
                 th.annotate_timescales(ax,times,mean[:,None],[k],
                     gap_times=gaps[:,row:row+1] if index==0 and (gap_lines or params.get('gap_lines',False)) else None,
                     fraction=fraction if fraction is not None else params.get('thermalization_fraction'),
@@ -79,13 +78,12 @@ def plot_archives(paths, gap_lines=False, fraction=None):
         for row,k in enumerate(ks):
             for col,g in enumerate(gs):
                 ax = axes[row,col]
-                zero = index==3 or (index==2 and k==1)
-                ax.set(xscale='log',yscale='linear' if zero else 'log',title=f'k={k}, g={g}',
+                numerical_check = index==3 or (index==2 and k==1)
+                ax.set(xscale='log',yscale='linear' if numerical_check else 'log',title=f'k={k}, g={g}',
                        xlabel=comparisons[0][1] if index==4 else r'$\tau$',
                        ylabel=comparisons[1][1] if index==4 else comparisons[index][1])
-                if zero:
-                    ax.set_ylim(-.01,.01)
-                    ax.text(.5,.7,'Exact zero',transform=ax.transAxes,ha='center')
+                if numerical_check:
+                    ax.set_ylim(bottom=0)
                 ax.legend()
         fig.tight_layout()
         name = comparisons[index][0] if index<4 else 'parametric'

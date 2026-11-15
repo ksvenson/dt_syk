@@ -314,8 +314,12 @@ estimates, and examples. `thermalization.py` documents the calculations.
 The evolved states are also compared with a single Scrooge ensemble of
 rho_A(t), computed from that same state's reduced density matrix, and with
 the generalized Scrooge ensemble of the full pure rho(t). The latter equals
-the projected ensemble exactly in the same bath basis, so its distance is
-analytically zero. The former has the same first moment but can differ at
+the projected ensemble mathematically in the same bath basis. Both moments
+are computed separately: the generalized target uses conditional density
+matrices and the projected ensemble uses conditional kets. Their numerical
+residual is retained, averaged, collected across MPI ranks and plotted.
+The single-Scrooge comparison also retains its computed first-moment residual,
+although its first moments agree mathematically. It can differ at
 higher orders, including due to parity constraints. All projected comparisons
 use the same sampled times and running average of per-state distances.
 

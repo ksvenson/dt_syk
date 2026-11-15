@@ -390,9 +390,11 @@ def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis,
         '2norm': real array of shape (number_of_times, len(k_series)), containing
         sqrt(Tr[(M_k(t)-target_k)^dagger (M_k(t)-target_k)]).
         With instantaneous=True, 'single_scr_2norm' has the same shape and
-        compares against single Scrooge(rho_A(t)); its k=1 column is exactly zero.
-        'instantaneous_gse_2norm' is exactly zero for every k because rho(t) is
-        pure in this computation and the bath measurement basis is unchanged.
+        compares against single Scrooge(rho_A(t)). 'instantaneous_gse_2norm'
+        compares against generalized Scrooge(rho(t)), evaluated independently
+        from bath-conditional density matrices. Both the single-target k=1
+        distance and every instantaneous generalized-target distance should
+        vanish mathematically, but their numerical residuals are returned.
         These are per-state distances; no time average is done here.
         This is the Hilbert-Schmidt/Frobenius norm, not the trace norm or the
         largest-singular-value norm sometimes also called a matrix 2-norm.
@@ -413,7 +415,7 @@ def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis,
            '2norm': np.empty((len(tau_series), len(k_series)))}
     if instantaneous:
         ret['single_scr_2norm'] = np.empty_like(ret['2norm'])
-        ret['instantaneous_gse_2norm'] = np.zeros_like(ret['2norm'])
+        ret['instantaneous_gse_2norm'] = np.empty_like(ret['2norm'])
     # Global phase is irrelevant; centering improves large-time phase accuracy.
     centered = evals - evals[0]
     pops = np.abs(psi0_eng_basis)**2
@@ -433,6 +435,7 @@ def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis,
         if instantaneous:
             rho_A = states.swapaxes(-1,-2)@states.conj()
             single_target = scrooge_moments(rho_A,n_scr,k_series,rng,symmetric=True)
+            instantaneous_target = generalized_scrooge_pure(states,k_series,symmetric=True)
         for j, k in enumerate(k_series):
             moment = projected_moment(states, int(k), symmetric=True)
             target = cond_scr_moment[f'k{k}']
@@ -443,8 +446,11 @@ def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis,
             ret['2norm'][start:stop, j] = np.sqrt(np.sum(np.abs(diff)**2, axis=(-2, -1)))
             if instantaneous:
                 single_diff = moment-single_target[f'k{k}']
-                ret['single_scr_2norm'][start:stop,j] = (0 if k == 1 else
-                    np.sqrt(np.sum(np.abs(single_diff)**2,axis=(-2,-1))))
+                ret['single_scr_2norm'][start:stop,j] = np.sqrt(
+                    np.sum(np.abs(single_diff)**2,axis=(-2,-1)))
+                generalized_diff = moment-instantaneous_target[f'k{k}']
+                ret['instantaneous_gse_2norm'][start:stop,j] = np.sqrt(
+                    np.sum(np.abs(generalized_diff)**2,axis=(-2,-1)))
     return ret
 
 
@@ -610,8 +616,8 @@ def scrooge_moments(density_matrices, n_scr, k_series, rng, symmetric=True):
     return result
 
 
-def generalized_scrooge_pure(states, k_series, symmetric=True):
-    """Exact generalized Scrooge target for a known full pure ket.
+def generalized_scrooge_pure(states, k_series, symmetric=True, bath_chunk=32):
+    """Calculate generalized Scrooge moments from a full pure ket's density blocks.
 
     states has shape (...,DB,DA) in the same bath measurement basis as the
     projected ensemble. For rho=|psi><psi|, rho_z=<z|rho|z>=|v_z><v_z| is
@@ -619,11 +625,48 @@ def generalized_scrooge_pure(states, k_series, symmetric=True):
     G_k[rho]=sum_z ||v_z||^2 (|v_z><v_z|/||v_z||^2)**tensor k equals the projected
     moment at every time, exactly. This does not assume thermalization.
 
-    Return a dictionary of moment matrices using projected_moment. The caller
-    comparing this target with the projected moment can use their analytic
-    equality instead of computing both matrices. No full-system density matrix,
-    conditional square root, or Haar sample is needed. The equality requires
-    the full input to be pure and both ensembles to use the same bath basis.
-    It does not apply to a time-averaged, dephased, or mixed full density matrix.
+    This function evaluates the target independently of projected_moment. For
+    each bath outcome it constructs R_z=|v_z><v_z|, obtains p_z=Tr(R_z), and
+    evaluates p_z*(R_z/p_z)**tensor k. These are the conditional Scrooge moments
+    because R_z/p_z has rank one. Zero-probability outcomes contribute zero.
+    The separate projected calculation uses tensor powers of normalized kets;
+    here tensor products are taken between density-matrix entries. Comparing
+    them therefore produces an actual numerical residual instead of an array
+    fixed to zero by the analytic identity.
+
+    Return a dictionary 'k1', etc., in the symmetric basis when symmetric=True,
+    or the ordinary k-copy basis otherwise. Inputs may carry leading batch
+    dimensions, e.g. (times,DB,DA). bath_chunk limits how many conditional
+    density blocks and their tensor products are held at once. No full-system
+    density matrix, square root, or Haar samples are needed for this pure-input
+    formula. This does not apply to a dephased or mixed full density matrix;
+    the same bath measurement basis must define both sides of the comparison.
     """
-    return {f'k{k}':projected_moment(states,int(k),symmetric) for k in k_series}
+    states = np.asarray(states,dtype=np.complex128)
+    ks = np.asarray(k_series,dtype=int)
+    if (states.ndim < 2 or states.shape[-1] < 1 or bath_chunk < 1
+            or ks.ndim != 1 or len(ks) == 0 or np.any(ks < 1)
+            or not np.all(np.isfinite(states))):
+        raise ValueError('Need finite conditional kets, positive moment orders and bath_chunk')
+    DA = states.shape[-1]
+    result = {f'k{k}':np.zeros(states.shape[:-2]+(len(symmetric_basis(DA,int(k))[0]),)*2,
+                              dtype=complex) for k in ks}
+    for start in range(0,states.shape[-2],bath_chunk):
+        kets = states[...,start:start+bath_chunk,:]
+        density = kets[..., :,None]*kets[...,None,:].conj()
+        probabilities = np.trace(density,axis1=-2,axis2=-1).real
+        normalized = np.zeros_like(density)
+        np.divide(density,probabilities[...,None,None],out=normalized,
+                  where=probabilities[...,None,None] > 0)
+        for k in ks:
+            tuples,factors = symmetric_basis(DA,int(k))
+            tensor = np.ones(probabilities.shape+(len(tuples),)*2,dtype=complex)
+            for copy in range(int(k)):
+                tensor *= normalized[...,tuples[:,copy,None],tuples[None,:,copy]]
+            tensor *= probabilities[...,None,None]*factors[:,None]*factors[None,:]
+            result[f'k{k}'] += tensor.sum(axis=-3)
+    if not symmetric:
+        for k in ks:
+            embedding = symmetric_isometry(DA,int(k))
+            result[f'k{k}'] = embedding@result[f'k{k}']@embedding.T
+    return result
