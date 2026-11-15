@@ -238,6 +238,7 @@ def main():
     of verbosity. Saved analysis wall time includes computation, collection and
     per-realization diagnostics, but excludes final archive writing and plotting. Cached eigensystems
     are checked before constructing H, and CACHE_DIR remains a static default."""
+    # Set up MPI, the physical Hilbert space, and the initial ket.
     args = parse_args()
     comm = tools.MPI_COMM_WORLD().tompi4py()
     rank, size = comm.Get_rank(), comm.Get_size()
@@ -253,6 +254,9 @@ def main():
     # parity coordinates must never be reshaped directly into bath x subsystem.
     psi0 = np.zeros(dimension, dtype=np.complex128)
     psi0[np.flatnonzero(indices == 0)[0]] = 1
+
+    # Reporting endpoints are shared by both comparisons. The temporal
+    # integration uses a finer grid; projected states have separate time draws.
     ks = np.arange(1, args.k_max+1)
     n_intervals = max(1, int(np.ceil(args.tmax/args.projected_dt)))
     times = np.linspace(0, args.tmax, n_intervals+1)
@@ -264,6 +268,8 @@ def main():
                 f'_gap{args.gap_k_max}_gcap{args.gap_max_sums}'
                 f'_fraction{args.thermalization_fraction}'
                 f'_rpenergyblocks_tol{args.degeneracy_tolerance}')
+    # Distribute disorder realizations across MPI ranks. Each local result
+    # array has axes (assigned realizations, reporting times, moment orders).
     task_alloc = [np.arange(i, args.realizations, size) for i in range(size)]
     tasks = task_alloc[rank]
     local_tr = np.empty((len(tasks), len(times), len(ks)))
@@ -276,10 +282,14 @@ def main():
         print(f'{args.realizations} realizations on {size} ranks; sector dimension {dimension}; '
               f'{n_intervals} projected strata; temporal dt={args.dt}', flush=True)
     for i, r in enumerate(tasks):
+        # Begin one disorder realization. Separate random streams control the
+        # Hamiltonian, fixed Scrooge samples, and instantaneous Scrooge samples.
         rng = lambda stream: np.random.default_rng(np.random.SeedSequence(args.seed, spawn_key=(int(r), stream)))
         h_note = f'SYK42mix_N{args.N}_g{args.g}_base-seed{args.seed}_r{r}_parity{args.parity}'
         scr_note = (f'{h_note}_psi00_DA{DA}_scr{args.n_scr}_k{args.k_max}_sym'
                     f'_rpenergyblocks_tol{args.degeneracy_tolerance}')
+        # 1. Obtain the Hamiltonian's energies and eigenvectors, loading the
+        # raw eigensystem from cache when available.
         t0 = perf_counter()
         eig_hit = args.cache_eigensystem and la.eig_system.cache_exists(note=h_note, cache_dir=cache_dir)
         if eig_hit:
@@ -294,12 +304,21 @@ def main():
                                  cache_enabled=args.cache_eigensystem)
             del H
         t2 = perf_counter()
+
+        # 2. Adapt the eigenbasis to psi0 ONCE. Each occupied degenerate energy
+        # block now has one occupied ket; all other coefficients in it are zero.
+        # Every subsequent calculation uses this same adapted eigensystem.
         adapted = tf.initial_state_eigenbasis(
             eigs['evals'], eigs['evecs'], psi0, args.degeneracy_tolerance)
         evals, evecs = adapted['evals'], adapted['evecs']
         coefficients = adapted['coefficients']
         del eigs
         pops = np.abs(coefficients)**2
+        active = pops > 0  # Omit exactly empty columns, with no further rotation.
+
+        # 3. Begin the continuous temporal-versus-RP moment comparison.
+        # First choose the integration spacing and record spectral/basis
+        # diagnostics. These diagnostics do not adapt the eigenbasis again.
         max_dt = tf.spectral_sampling_diagnostics(evals, args.k_max, 1.)['nyquist_dt']
         dt = min(.1, .5*max_dt) if args.dt == 'auto' else args.dt
         diagnostics = tf.spectral_sampling_diagnostics(evals, args.k_max, dt)
@@ -322,8 +341,13 @@ def main():
             local_sampling_warnings[i] = 1
             if args.verbose:
                 print(f'WARNING: rank {rank}, realization {r}: {warning}', flush=True)
+
+        # Compute the temporal moment errors from scalar return amplitudes;
+        # temporal_distance_continuous also computes the exact RP purities.
         temporal = tf.temporal_distance_continuous(evals, pops, ks, times, dt=dt)
         local_tr[i] = temporal['distance']
+
+        # Record checks and short-time energy scales for the temporal result.
         factors = np.array(diagnostics['degeneracy']['hs_partial_trace_factors'])
         diagnostics['hs_partial_trace_max_violation'] = np.maximum(
             local_tr[i, :, :1]*factors-local_tr[i], 0).max(axis=0).tolist()
@@ -334,6 +358,9 @@ def main():
         diagnostics['energy_standard_deviation'] = float(np.sqrt(energy_variance))
         diagnostics['short_time_overlap_widths'] = [
             float(1/np.sqrt(k*energy_variance)) if energy_variance > 0 else None for k in ks]
+
+        # Optional integration-accuracy check: repeat only the scalar-overlap
+        # calculation with half the step. No projected states are generated here.
         if args.check_dt:
             refined = tf.temporal_distance_continuous(evals, pops, ks, times, dt=dt/2)
             diagnostics['dt_half_max_squared_error'] = np.max(np.abs(
@@ -342,9 +369,12 @@ def main():
                 temporal['distance']-refined['distance']), axis=0).tolist()
             if args.verbose:
                 print(f'Rank {rank}, dt refinement: {diagnostics["dt_half_max_distance_error"]}', flush=True)
+
+        # Optional spectral timescale diagnostics, separate from the moment
+        # integration. Enumerate k-energy sums only when the requested cap allows.
         gap_start = perf_counter()
         diagnostics['moment_gaps'] = []
-        occupied = evals[pops > 0]  # omit only exactly zero populations
+        occupied = evals[active]
         for j, k in enumerate(ks):
             if k <= args.gap_k_max:
                 gap = th.minimum_moment_gap(occupied, int(k), args.gap_max_sums)
@@ -357,22 +387,36 @@ def main():
                 if args.verbose:
                     print(f'Rank {rank}, k={k} gap diagnostic: {gap}', flush=True)
         t3 = perf_counter()
-        dephased_vectors, dephased_pops = tf.energy_dephased_components(
-            evals, evecs, coefficients, 0.)
-        target = pf.cond_scr_moment(dephased_vectors, dephased_pops, args.n_scr, ks, DA, rng(1),
-                    note=scr_note+'_dephased_tol'+str(diagnostics['degeneracy']['energy_tolerance']), basis_indices=indices, full_dimension=D, symmetric=True, cache_dir=cache_dir)
+
+        # 4. Compute the fixed generalized Scrooge target G_k[sigma]. In this
+        # adapted basis sigma = sum_alpha pops[alpha] |E_alpha><E_alpha| is
+        # already the physical energy-dephased state. Pass its occupied kets
+        # and populations directly; no second dephasing or basis adaptation.
+        target = pf.cond_scr_moment(
+            evecs[:, active], pops[active], args.n_scr, ks, DA, rng(1),
+            note=scr_note+'_dephased_tol0.0',
+            basis_indices=indices, full_dimension=D, symmetric=True, cache_dir=cache_dir)
         t4 = perf_counter()
+
+        # 5. Begin the projected-ensemble computation. Choose a time per
+        # interval (or grid endpoints), evolve psi0 using the adapted basis,
+        # and compute each state's projected moments and target distances.
         sample_times = times.copy()
         if args.projected_sampling == 'stratified':
             time_rng = np.random.default_rng(np.random.SeedSequence(
                 args.seed, spawn_key=(int(r), 2, args.time_seed)))
             sample_times[1:] = times[:-1] + width*time_rng.random(n_intervals)
-        active = pops > 0
         sampled = pf.time_evolved_overlaps_and_ps_2norm(
             evals[active], evecs[:, active], coefficients[active], sample_times, ks, DA, target,
             chunk=args.chunk, note=f'{run_note}_r{r}', basis_indices=indices,
             full_dimension=D, symmetric=True, cache_dir=cache_dir,
             cache_enabled=args.cache_projected, instantaneous=True, n_scr=args.n_scr, rng=rng(3))
+
+        # 6. Average the per-state distances over sampled times. This differs
+        # from averaging projected moments before calculating a distance.
+        # The same evolved states also supply the single Scrooge(rho_A(t))
+        # comparison; generalized Scrooge(rho(t)) equals the projected ensemble
+        # exactly for a pure full-system input and is recorded as zero below.
         distances = sampled['2norm']
         if args.projected_sampling == 'stratified':
             local_ps[i, 0] = distances[0]
@@ -392,6 +436,9 @@ def main():
             'generalized_scrooge': 'rho(t) is pure: exactly the projected ensemble for all k',
             'averaging': 'same sampled times and distance-before-time-average convention as the fixed target'}
         t5 = perf_counter()
+
+        # Save this realization's timings and diagnostics on its assigned rank.
+        # The distance arrays remain local until every assigned realization ends.
         timing = {'hamiltonian_seconds': t1-t0, 'diagonalization_seconds': t2-t1,
                   'temporal_seconds': gap_start-t2, 'gap_seconds': t3-gap_start, 'scrooge_seconds': t4-t3,
                   'projected_seconds': t5-t4, 'total_seconds': t5-t0,
@@ -402,7 +449,8 @@ def main():
         if args.verbose:
             print(f'Rank {rank}, realization {r}: timings {timing["total_seconds"]:.1f}s total, '
                   f'{timing["projected_seconds"]:.1f}s projected', flush=True)
-    # Gather contiguous rank blocks, then restore disorder-realization order.
+    # 7. Collect all local MPI arrays on rank zero, beginning with the three
+    # distance arrays. Ranks may own different numbers of realizations.
     counts = np.array([len(x) for x in task_alloc])*len(times)*len(ks)
     offsets = np.r_[0, np.cumsum(counts[:-1])]
     temporal = np.empty((args.realizations, len(times), len(ks))) if rank == 0 else None
@@ -411,6 +459,8 @@ def main():
     comm.Gatherv(local_tr, [temporal, (counts, offsets)] if rank == 0 else None, root=0)
     comm.Gatherv(local_ps, [projected, (counts, offsets)] if rank == 0 else None, root=0)
     comm.Gatherv(local_single, [single, (counts, offsets)] if rank == 0 else None, root=0)
+
+    # Collect the smaller arrays of spectral references and sampling warnings.
     gap_counts = np.array([len(x) for x in task_alloc])*len(ks)
     gap_offsets = np.r_[0, np.cumsum(gap_counts[:-1])]
     gaps = np.empty((args.realizations, len(ks))) if rank == 0 else None
@@ -422,6 +472,9 @@ def main():
     sampling_warnings = np.empty(args.realizations, dtype=np.int64) if rank == 0 else None
     comm.Gatherv(local_sampling_warnings,
                  [sampling_warnings, (realization_counts, realization_offsets)] if rank == 0 else None, root=0)
+
+    # 8. Rank zero restores realization order, saves the combined results,
+    # and optionally plots disorder averages. Other ranks have finished.
     if rank == 0:
         order = np.argsort(np.concatenate(task_alloc))
         temporal, projected = temporal[order], projected[order]
@@ -431,6 +484,8 @@ def main():
         sampling_warnings = sampling_warnings[order]
         analysis_wall_seconds = perf_counter()-run_started
         result_path = os.path.join(cache_dir, 'results_'+run_note+'.npz')
+
+        # Extract any requested threshold-crossing times from disorder means.
         def observed_times(data):
             """Threshold endpoints for disorder-mean curves; NaN denotes no crossing."""
             if args.thermalization_fraction is None:
@@ -438,6 +493,7 @@ def main():
             mean = data.mean(axis=0)
             return np.array([np.nan if (t := th.threshold_time(times, mean[:, j],
                 args.thermalization_fraction)) is None else t for j in range(len(ks))])
+
         np.savez_compressed(result_path, tau_series=times, k_series=ks,
                  temp_rp_2norm=temporal, proj_scr_2norm=projected,
                  proj_single_scr_2norm=single, proj_instantaneous_gse_2norm=instantaneous_gse,

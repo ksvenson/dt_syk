@@ -143,8 +143,12 @@ First define the energy-dephased density matrix
 $$\sigma=\sum_b\Pi_b|\psi_0\rangle\langle\psi_0|\Pi_b,$$
 
 where Pi_b projects onto a full degenerate energy subspace. The calculation
-retains coherences inside each block. Without degeneracies this reduces to
-sum_alpha p_alpha |E_alpha><E_alpha|. See NORM_DIAGNOSTICS.md for the numerical
+retains coherences inside each block. Because the eigenbasis was adapted once
+in step 1, this equals sum_alpha p_alpha |E_alpha><E_alpha| even with
+degeneracies. `cond_scr_moment` receives those same adapted eigenvectors and
+populations directly, omitting only exactly zero populations. There is no
+second basis adaptation or call to `energy_dephased_components` in the driver.
+See NORM_DIAGNOSTICS.md for the numerical
 energy grouping tolerance and the adapted block-phase RP reference used in
 the temporal comparison. The same identified blocks are used throughout;
 they are not regrouped with the original tolerance after assigning common energies.

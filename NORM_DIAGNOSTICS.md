@@ -344,8 +344,12 @@ The relevant objects are therefore:
 | sigma_z | Unnormalized conditional block of sigma after a bath outcome | Subsystem A |
 | G_k[sigma] | Fixed generalized Scrooge target moment | k copies of A |
 
-The corrected implementation represents each occupied energy block using the
-ket Pi_b|psi_0>/sqrt(q_b) and its weight q_b=||Pi_b|psi_0>||^2. This q_b refers
+The implementation represents each occupied energy block using the
+ket Pi_b|psi_0>/sqrt(q_b) and its weight q_b=||Pi_b|psi_0>||^2. These are already
+the occupied eigenvectors and populations returned by the initial basis
+adaptation. The driver passes them directly to `cond_scr_moment`, selecting
+nonzero populations without any further call to `energy_dephased_components`
+or change of basis. This q_b refers
 to an energy-block population; it is distinct from the bath-outcome probability
 q_z above. The conditional blocks are calculated directly from these weighted
 kets, avoiding storage of a full D by D sigma. Tests verify invariance under
