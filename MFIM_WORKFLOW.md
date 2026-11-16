@@ -96,6 +96,10 @@ ibrun python3 mfim_temp_proj.py --L 8 --LA 2 --tmax 100 --n-scr 100 --check-dt
 
 The common defaults include tmax=100000, n_scr=1000, k_max=3, projected_dt=1,
 stratified projected times, and automatic temporal quadrature spacing. Shared
+controls are registered by the same `add_sampling_arguments` function as SYK.
+MFIM defaults to LA=2 spins, equivalent to SYK's NA=4 Majoranas, giving DA=4.
+Automatic dt is spectrum dependent, so matching the `auto` setting does not
+require the numerical integration step to match between Hamiltonians. Shared
 cache switches, `--gap-k-max`, `--gap-lines`, `--thermalization-fraction`,
 `--no-plots`, and `--verbose` are supported. Results and timing JSON use an
 MFIM_L... prefix, so they do not collide with SYK output. There is one timing
@@ -116,6 +120,12 @@ same PHY26019/normal allocation, .venv activation, one BLAS thread per rank,
 `ibrun`, output directories, and per-job timing policy as the SYK scripts.
 Analysis flags after `--` are forwarded unchanged. Resource defaults are
 requests, not measured wall-time estimates; override them for cluster pilots.
+`resources_for_L` near the top of `submit_mfim_sweep.sh` is an explicit table
+with one row per spin count, in the form `L) echo "nodes tasks HH:MM:SS" ;;`.
+Each L can have its own walltime, nodes and MPI task count. Edit the individual
+rows for your measured runtimes, or use `--time`, `--nodes` and `--tasks` to
+override those columns for every L in a submission. Sizes absent from the
+table require either a new row or all three explicit resource overrides.
 No Slurm jobs are submitted by tests or by a dry run.
 
 The collector displays the SYK N/g and MFIM L/model timing schemas separately

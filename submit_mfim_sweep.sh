@@ -9,6 +9,30 @@ QUEUE=normal
 JOBSCRIPT=mfim_job.slurm
 MANIFEST=mfim_manifest.csv
 L_VALUES=(8 9 10 11 12)
+
+# Per-L resources: "<nodes> <MPI tasks> <walltime>".
+# Edit each row independently for measured runtimes at your analysis settings.
+# Defaults assume tmax=100000; they are requests, not benchmark predictions.
+# More ranks replicate eigenvectors, so larger L uses fewer tasks by default.
+# Command-line --nodes/--tasks/--time override the corresponding table columns.
+resources_for_L() {
+    case "$1" in
+         3) echo "1 32 04:00:00" ;;
+         4) echo "1 32 04:00:00" ;;
+         5) echo "1 32 04:00:00" ;;
+         6) echo "1 32 04:00:00" ;;
+         7) echo "1 32 04:00:00" ;;
+         8) echo "1 32 04:00:00" ;;
+         9) echo "1 32 04:00:00" ;;
+        10) echo "1 32 04:00:00" ;;
+        11) echo "1 32 12:00:00" ;;
+        12) echo "1 32 12:00:00" ;;
+        13) echo "2 16 24:00:00" ;;
+        14) echo "2 16 24:00:00" ;;
+         *) return 1 ;;
+    esac
+}
+
 DRY=0
 NODES_OVERRIDE=""
 TASKS_OVERRIDE=""
@@ -43,17 +67,19 @@ fi
 failed=0
 for L in "${L_VALUES[@]}"; do
     [[ $L =~ ^[0-9]+$ && $L -ge 3 ]] || { echo "invalid spin count $L" >&2; failed=1; continue; }
-    case "$L" in
-        3|4|5|6|7|8|9|10) NODES=1; TASKS=32; WALLTIME=04:00:00 ;;
-        11|12) NODES=1; TASKS=32; WALLTIME=12:00:00 ;;
-        13|14) NODES=2; TASKS=16; WALLTIME=24:00:00 ;;
-        *)
-            if [[ -z $NODES_OVERRIDE || -z $TASKS_OVERRIDE || -z $TIME_OVERRIDE ]]; then
-                echo "L=$L: supply explicit --nodes --tasks --time after estimating dense-matrix memory" >&2
-                failed=1; continue
-            fi
-            NODES=$NODES_OVERRIDE; TASKS=$TASKS_OVERRIDE; WALLTIME=$TIME_OVERRIDE ;;
-    esac
+    if spec=$(resources_for_L "$L"); then
+        read -r NODES TASKS WALLTIME <<< "$spec"
+        if [[ -z $NODES || -z $TASKS || -z $WALLTIME ]]; then
+            echo "L=$L: malformed resources_for_L row '$spec', skipping" >&2
+            failed=1; continue
+        fi
+    else
+        if [[ -z $NODES_OVERRIDE || -z $TASKS_OVERRIDE || -z $TIME_OVERRIDE ]]; then
+            echo "L=$L: add a resources_for_L row or supply explicit --nodes --tasks --time after estimating dense-matrix memory" >&2
+            failed=1; continue
+        fi
+        NODES=$NODES_OVERRIDE; TASKS=$TASKS_OVERRIDE; WALLTIME=$TIME_OVERRIDE
+    fi
     NODES=${NODES_OVERRIDE:-$NODES}; TASKS=${TASKS_OVERRIDE:-$TASKS}; WALLTIME=${TIME_OVERRIDE:-$WALLTIME}
     TAG=MFIM_L${L}
     args=(-A "$ALLOC" -p "$QUEUE" -J "mfim_L${L}" -N "$NODES" -n "$TASKS" -t "$WALLTIME"

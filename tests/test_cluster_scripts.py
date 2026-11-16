@@ -23,6 +23,19 @@ class ClusterScriptsTests(unittest.TestCase):
             self.assertEqual(result.stdout.count('sbatch '),2)
             self.assertIn('mfim_job.slurm 4 --tmax 7 --n-scr 11',result.stdout)
             self.assertIn('mfim_job.slurm 6 --tmax 7 --n-scr 11',result.stdout)
+            # Per-size resource rows are used independently; CLI overrides
+            # replace only the requested columns for every submitted size.
+            sized=subprocess.run(['bash','submit_mfim_sweep.sh','--dry-run','--L','8','12','14'],
+                                 cwd=directory,text=True,capture_output=True,check=True)
+            commands=sized.stdout.splitlines()
+            self.assertIn('-N 1 -n 32 -t 04:00:00',commands[0])
+            self.assertIn('-N 1 -n 32 -t 12:00:00',commands[1])
+            self.assertIn('-N 2 -n 16 -t 24:00:00',commands[2])
+            overridden=subprocess.run(['bash','submit_mfim_sweep.sh','--dry-run','--L','8','14',
+                                       '--time','00:45:00'],cwd=directory,
+                                      text=True,capture_output=True,check=True)
+            self.assertEqual(overridden.stdout.count('-t 00:45:00'),2)
+            self.assertIn('-N 2 -n 16',overridden.stdout)
             (directory/'.venv/bin').mkdir(parents=True)
             (directory/'.venv/bin/activate').write_text('')
             bin_dir=directory/'bin';bin_dir.mkdir()
