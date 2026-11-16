@@ -196,15 +196,15 @@ change from a change in dynamics. g=0 is pure quartic SYK; g=1 is the free
 quadratic endpoint, with additional energy-sum resonances expected.
 
 
-The two new instantaneous comparisons run by default alongside the fixed
-energy-dephased target. Their independent time-local Haar inputs use stream 3.
-The full-pure-input generalized target is calculated separately from conditional
-density matrices. It needs no Haar samples, because its conditional inputs are
-rank one; the numerical distance is still computed instead of fixed to zero.
-The first moment of the single reduced-state target is also evaluated exactly,
+The instantaneous single Scrooge comparison runs alongside the fixed
+energy-dephased generalized Scrooge comparison and the global temporal/RP
+comparison. Its input is rho_A(t)=Tr_B rho_AB(t), and its time-local Haar
+samples use stream 3. Its first moment is evaluated exactly as rho_A(t),
 and its numerical distance from the projected first moment is retained.
+There is no fourth comparison with generalized Scrooge of pure rho_AB(t).
+
 See INSTANTANEOUS_SCROOGE.md for the formulas, parity constraint and sampling
-uncertainty. Production result archives are compressed. All computed comparison
-arrays have their complete (realizations,times,k) shape and are gathered across
-MPI ranks. Filenames include `gsenum` to distinguish these numerical checks
-from the former analytically filled zero arrays.
+uncertainty. The three distance arrays have their complete
+(realizations,times,k) shape, are collected across MPI ranks and saved with NPZ
+compression. Filenames include `singlecheck` to distinguish the numerical
+single-Scrooge k=1 check from the former analytically filled zero column.

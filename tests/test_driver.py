@@ -73,10 +73,10 @@ class DriverTests(unittest.TestCase):
                         'amplitudes_real':[1.],'amplitudes_imag':[0.]})
                     first = data['temp_rp_2norm'].copy()
                     single = data['proj_single_scr_2norm'].copy()
-                    gse = data['proj_instantaneous_gse_2norm'].copy()
+                    self.assertEqual({key for key in data.files if key.endswith('_2norm')},
+                                     {'temp_rp_2norm','proj_scr_2norm','proj_single_scr_2norm'})
                     self.assertEqual(single.shape,first.shape)
                     assert_allclose(single[:,:,0],0,atol=1e-13)
-                    assert_allclose(gse,0,atol=1e-13)
                     self.assertEqual(data['moment_min_gaps'].shape, (2, 3))
                     self.assertTrue(np.isnan(data['moment_gap_times'][:, 2]).all())
                     self.assertEqual(data['temporal_threshold_times'].shape, (3,))
@@ -113,8 +113,8 @@ class DriverTests(unittest.TestCase):
                 with mock.patch.object(ut, 'FIG_DIR', directory):
                     plotting.plot_archives([str(archive)], gap_lines=True, fraction=.5)
                     driver.plot_results(np.arange(5.), first, first, np.arange(1,4),
-                                        'test', 'test', fraction=.5,single=single,instantaneous_gse=gse)
-                self.assertEqual(len(list(Path(directory).glob('*.png'))), 9)
+                                        'test', 'test', fraction=.5,single=single)
+                self.assertEqual(len(list(Path(directory).glob('*.png'))), 7)
                 # Reject mixing the old numerical-vector RP definition with
                 # the adapted definition, even for different N configurations.
                 with np.load(archive) as data:
@@ -141,18 +141,17 @@ class DriverTests(unittest.TestCase):
             self.assertLess(diagnostic['initial_state_eigenbasis']['ket_error_bound_at_tmax'],1e-11)
             # A deliberate target discrepancy must survive time averaging,
             # MPI collection and archive writing instead of being set to zero.
-            original_target = driver.pf.generalized_scrooge_pure
+            original_target = driver.pf.scrooge_moments
             def perturbed_target(*args,**kwargs):
                 target = original_target(*args,**kwargs)
-                for moment in target.values():
-                    moment[...,0,0] += .125
+                target['k1'][...,0,0] += .125
                 return target
             with mock.patch.object(sys,'argv',degenerate_argv), mock.patch('builtins.print'), \
-                 mock.patch.object(driver.pf,'generalized_scrooge_pure',side_effect=perturbed_target):
+                 mock.patch.object(driver.pf,'scrooge_moments',side_effect=perturbed_target):
                 driver.main()
             archive_path = next(Path(directory).glob('results_mix_N12_*.npz'))
             with np.load(archive_path) as data:
-                assert_allclose(data['proj_instantaneous_gse_2norm'],.125,atol=1e-13)
+                assert_allclose(data['proj_single_scr_2norm'][:,:,0],.125,atol=1e-13)
                 if importlib.util.find_spec('matplotlib') is not None:
                     # Both plotting entry points must show a discrepancy much
                     # larger than the old fixed +/-0.01 plotting range.
@@ -161,19 +160,17 @@ class DriverTests(unittest.TestCase):
                          mock.patch.object(plotting.plt,'close') as close:
                         plotting.plot_archives([str(archive_path)])
                         sweep_figures = [call.args[0] for call in close.call_args_list]
-                        for ax in sweep_figures[3].axes:
-                            assert_allclose(ax.lines[0].get_ydata(),.125,atol=1e-13)
-                            self.assertGreater(ax.get_ylim()[1],.125)
-                            self.assertFalse(any('Exact zero' in label.get_text() for label in ax.texts))
+                        ax = sweep_figures[2].axes[0]
+                        assert_allclose(ax.lines[0].get_ydata(),.125,atol=1e-13)
+                        self.assertGreater(ax.get_ylim()[1],.125)
+                        self.assertFalse(any('Exact zero' in label.get_text() for label in ax.texts))
                         close.reset_mock()
                         driver.plot_results(data['tau_series'],data['temp_rp_2norm'],
                             data['proj_scr_2norm'],data['k_series'],'numerical_check','check',
-                            single=data['proj_single_scr_2norm'],
-                            instantaneous_gse=data['proj_instantaneous_gse_2norm'])
+                            single=data['proj_single_scr_2norm'])
                         production_figures = [call.args[0] for call in close.call_args_list]
-                        ax = production_figures[3].axes[0]
-                        for line in ax.lines:
-                            assert_allclose(line.get_ydata(),.125,atol=1e-13)
+                        ax = production_figures[2].axes[0]
+                        assert_allclose(ax.lines[0].get_ydata(),.125,atol=1e-13)
                         self.assertGreater(ax.get_ylim()[1],.125)
                     for figure in sweep_figures+production_figures:
                         plotting.plt.close(figure)

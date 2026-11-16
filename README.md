@@ -9,8 +9,8 @@ degenerate energy block has one occupied basis ket. Independent RP phases
 therefore act on energy-projected initial components, so the first temporal
 moment converges to the RP first moment even with energy degeneracies.
 
-See [INSTANTANEOUS_SCROOGE.md](INSTANTANEOUS_SCROOGE.md) for the two new
-instantaneous targets, exact identities, sampling, and computational savings.
+See [INSTANTANEOUS_SCROOGE.md](INSTANTANEOUS_SCROOGE.md) for the three
+distance comparisons, the instantaneous single target, and numerical k=1 check.
 
 See [NORM_DIAGNOSTICS.md](NORM_DIAGNOSTICS.md) for degeneracies, moment norms,
 and the energy-dephased reference.

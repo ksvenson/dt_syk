@@ -9,7 +9,7 @@ import thermalization as th
 
 
 def plot_archives(paths, gap_lines=False, fraction=None):
-    """Plot all four ensemble comparisons and the original parametric comparison.
+    """Plot the three ensemble comparisons and the original parametric comparison.
 
     paths is a nonempty list of production NPZ files, one per (N,g). Runs must
     agree in subsystem, moment orders, random seed, parity, projected-time
@@ -20,12 +20,11 @@ def plot_archives(paths, gap_lines=False, fraction=None):
 
     gap_lines optionally shows saved finite spectral reference medians only on
     the temporal plot. fraction optionally overrides the saved observed threshold.
-    The instantaneous generalized Scrooge comparison and the single-Scrooge
-    first moment should vanish mathematically. Their computed residuals use
-    linear vertical axes with automatic upper limits, so discrepancies remain
+    The single-Scrooge first moment should vanish mathematically. Its computed
+    residual uses a linear vertical axis with automatic upper limits, so discrepancies remain
     visible instead of being hidden by an assumed exact-zero annotation.
 
-    Five figures are written under utilities.FIG_DIR. No states are recomputed.
+    Four figures are written under utilities.FIG_DIR. No states are recomputed.
     Incompatible archives or duplicate (N,g) configurations raise ValueError.
     """
     if not paths:
@@ -33,8 +32,7 @@ def plot_archives(paths, gap_lines=False, fraction=None):
     comparisons = [
         ('temp_rp_2norm',r'$||\rho_T^{(k)}-\rho_{RP}^{(k)}||_2$'),
         ('proj_scr_2norm',r'$\mathbb{E}_t||M_k(t)-G_k[\sigma]||_2$'),
-        ('proj_single_scr_2norm',r'$\mathbb{E}_t||M_k(t)-S_k[\rho_A(t)]||_2$'),
-        ('proj_instantaneous_gse_2norm',r'$\mathbb{E}_t||M_k(t)-G_k[\rho(t)]||_2$')]
+        ('proj_single_scr_2norm',r'$\mathbb{E}_t||M_k(t)-S_k[\rho_A(t)]||_2$')]
     runs, seen, signature = [], set(), None
     for path in paths:
         with np.load(path,allow_pickle=False) as data:
@@ -46,7 +44,7 @@ def plot_archives(paths, gap_lines=False, fraction=None):
             current = tuple(params.get(k) for k in ('NA','k_max','n_scr','seed','parity',
                 'projected_sampling','projected_dt','time_seed','tmax','hamiltonian_convention',
                 'rp_reference','energy_grouping','degeneracy_tolerance',
-                'instantaneous_gse_evaluation'))
+                'single_scrooge_evaluation'))
             if signature is not None and signature != current:
                 raise ValueError('Archives mix incompatible physical or sampling parameters')
             signature = current
@@ -55,8 +53,9 @@ def plot_archives(paths, gap_lines=False, fraction=None):
                          data['moment_gap_times']))
     gs = sorted({p['g'] for p,*_ in runs})
     ks = runs[0][2]
+    parametric_index = len(comparisons)
     figures = [plt.subplots(len(ks),len(gs),squeeze=False,
-                           figsize=ut.fig_size(len(gs),len(ks))) for _ in range(5)]
+                           figsize=ut.fig_size(len(gs),len(ks))) for _ in range(parametric_index+1)]
     for params,times,orders,values,gaps in sorted(runs,key=lambda x:x[0]['N']):
         col = gs.index(params['g'])
         means = {key:array.mean(axis=0) for key,array in values.items()}
@@ -72,21 +71,21 @@ def plot_archives(paths, gap_lines=False, fraction=None):
                     gap_times=gaps[:,row:row+1] if index==0 and (gap_lines or params.get('gap_lines',False)) else None,
                     fraction=fraction if fraction is not None else params.get('thermalization_fraction'),
                     label_prefix=f'N={params["N"]}: ',colors=[line.get_color()])
-            figures[4][1][row,col].plot(means['temp_rp_2norm'][1:,row],means['proj_scr_2norm'][1:,row],label=f'N={params["N"]}')
+            figures[parametric_index][1][row,col].plot(means['temp_rp_2norm'][1:,row],means['proj_scr_2norm'][1:,row],label=f'N={params["N"]}')
     os.makedirs(ut.FIG_DIR,exist_ok=True)
     for index,(fig,axes) in enumerate(figures):
         for row,k in enumerate(ks):
             for col,g in enumerate(gs):
                 ax = axes[row,col]
-                numerical_check = index==3 or (index==2 and k==1)
+                numerical_check = index==2 and k==1
                 ax.set(xscale='log',yscale='linear' if numerical_check else 'log',title=f'k={k}, g={g}',
-                       xlabel=comparisons[0][1] if index==4 else r'$\tau$',
-                       ylabel=comparisons[1][1] if index==4 else comparisons[index][1])
+                       xlabel=comparisons[0][1] if index==parametric_index else r'$\tau$',
+                       ylabel=comparisons[1][1] if index==parametric_index else comparisons[index][1])
                 if numerical_check:
                     ax.set_ylim(bottom=0)
                 ax.legend()
         fig.tight_layout()
-        name = comparisons[index][0] if index<4 else 'parametric'
+        name = comparisons[index][0] if index<parametric_index else 'parametric'
         fig.savefig(os.path.join(ut.FIG_DIR,f'N_g_sweep_{name}.png'),**ut.FIG_SAVE_OPTIONS)
         plt.close(fig)
 

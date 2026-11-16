@@ -1,9 +1,18 @@
-# The three projected-ensemble targets
+# The three distance comparisons
 
-The production run now calculates the original energy-dephased target and the
-two requested instantaneous targets from the **same evolved states and bath
-measurement basis**. It does not repeat diagonalization or full-state evolution
-for the new comparisons. All distances are Hilbert-Schmidt/Frobenius distances.
+The production driver computes exactly these three Hilbert-Schmidt/Frobenius
+distances. The projected comparisons share the same evolved states and bath
+measurement basis; no extra diagonalization or state evolution is needed.
+
+| Comparison | Target | Saved key |
+|---|---|---|
+| Temporal versus random phase | Adapted energy-block RP moments | `temp_rp_2norm` |
+| Projected versus generalized Scrooge | Fixed energy-dephased full input sigma | `proj_scr_2norm` |
+| Projected versus single Scrooge | Instantaneous reduced input rho_A(t) | `proj_single_scr_2norm` |
+
+Here rho_AB(t)=|psi(t)><psi(t)| is the full-system state and
+rho_A(t)=Tr_B rho_AB(t) is the reduced state on A. The single Scrooge ensemble
+compared with the projected ensemble on A uses rho_A(t), not the full matrix.
 
 Let the state at the sampled time be
 
@@ -32,7 +41,7 @@ full D by D sigma. This target is fixed for a given disorder realization.
 
 ## 2. A single Scrooge ensemble with input rho_A(t)
 
-The first new target is
+The instantaneous single target is
 
 $$\rho_A(t)=\mathrm{Tr}_B|\psi(t)\rangle\langle\psi(t)|
 =\sum_z|v_z(t)\rangle\langle v_z(t)|,\qquad S_k[\rho_A(t)].$$
@@ -98,78 +107,38 @@ mixture of |00><00| and |11><11|, while Scrooge(I/2) is Haar and has second mome
 P_sym/3. Their Hilbert-Schmidt distance is exactly 1/sqrt(6), despite equal first
 moments. A regression test checks this example against the sampler.
 
-## 3. Generalized Scrooge with the full instantaneous input rho(t)
+## The former fourth comparison
 
-For the second new target, the full input is **pure**:
-
-$$\rho(t)=|\psi(t)\rangle\langle\psi(t)|.$$
-
-Its bath-conditional matrices are
-
-$$\rho_z(t)=\langle z|\rho(t)|z\rangle
-=|v_z(t)\rangle\langle v_z(t)|.$$
-
-Each nonzero conditional matrix has rank one. The Scrooge ensemble of a pure
-density matrix contains just that pure ket, so
-
-$$G_k[\rho(t)]=\sum_z p_z(t)
-S_k[|\phi_z(t)\rangle\langle\phi_z(t)|]=M_k(t).$$
-
-Thus this comparison is **identically zero for all t and k**, independently of
-g, N, chaos, or thermalization. This conclusion uses the generalized-Scrooge
-mixture defined by the same bath measurement basis. A different mixed global
-input or different bath basis would be a different calculation.
-
-The code now checks this identity numerically. `generalized_scrooge_pure`
-constructs the conditional density matrices R_z=|v_z><v_z|, computes their
-traces p_z, and evaluates the target independently as
-
-$$G_k[\rho(t)]=\sum_{z:p_z>0}p_z(R_z/p_z)^{\otimes k}.$$
-
-This calculation takes tensor products of density-matrix entries. The
-projected moment uses tensor products of normalized ket amplitudes, so the
-two sides follow separate numerical calculations. Their matrix difference
-and Frobenius norm are evaluated for every sampled time and moment order.
-No numerical distance is replaced with zero. Tests deliberately perturb the
-target to verify that a discrepancy reaches the saved results.
-
-For this pure full input, each conditional Scrooge ensemble is a single pure
-ket, so no Haar sampling or per-outcome square root is required. Only DA by DA
-conditional density blocks are formed; the full D by D rho(t) is never stored.
-Bath outcomes are handled in batches of 32 to limit temporary memory. This
-independent check adds computation, but its cost does not grow with n_scr.
-The plot remains a consistency check, rather than a thermalization diagnostic.
+An earlier version also compared M_k(t) with generalized Scrooge using the
+full pure rho_AB(t) as input. Its conditional density matrices are rank one,
+so that generalized target equals M_k(t) at every order. It vanishes for all
+k, unlike the single Scrooge comparison whose k=1 distance alone is guaranteed
+to vanish for an arbitrary state. This fourth comparison, its calculation,
+result arrays, MPI collection, and plot have been removed from the driver.
 
 ## Averaging, arrays and plots
 
-At every sampled time the three distances are calculated against their own
-specified targets. The positive-time curves then use the **same** stratified
-running average (or explicit grid averaging if selected) as the original
-projected comparison. They are averages of distances, not distances between
-averaged moments. The target of the first new comparison remains rho_A(t)
-inside that average; it is never replaced by the reduced time-averaged state.
+The temporal/RP distance compares continuously time-averaged global moments.
+The two projected distances instead compare each sampled state's projected
+moment with its target before averaging those distances over time. Both use
+the same stratified running average, or explicit grid averaging if selected.
+The single Scrooge input remains rho_A(t) at the sampled time; it is never
+replaced by the reduced time-averaged state.
 
-The production NPZ now contains, each with shape (realizations,times,k):
+The three saved distance arrays have shape (realizations,times,k), and each
+has its own threshold-time array. They are collected across MPI ranks and
+saved with NPZ compression. No first-moment single-Scrooge distance is replaced
+with zero. Tests perturb that target to verify that a discrepancy survives
+numerical comparison, time averaging, MPI collection, saving, and plotting.
 
-| Key | Per-state quantity averaged in time |
-|---|---|
-| `proj_scr_2norm` | distance to fixed G_k[sigma_dephased] |
-| `proj_single_scr_2norm` | distance to S_k[rho_A(t)] |
-| `proj_instantaneous_gse_2norm` | numerical distance to independently computed G_k[rho(t)]; expected to vanish |
+New result and projected-intermediate filenames include `singlecheck` to
+avoid reusing intermediates with the old analytically filled first-moment
+column. Metadata identifies `single_scrooge_evaluation` as
+`numerical moment difference`. Existing archives may contain an extra fourth
+array; the sweep plot reads only the three comparisons listed above.
 
-`temp_rp_2norm` retains its separate continuous temporal/RP meaning. The files
-also contain separate observed threshold-time arrays for the new curves.
-All three projected-comparison arrays are genuinely computed, averaged over
-time, gathered across MPI ranks, and saved with NPZ compression. The numerical
-generalized comparison requires its own result array and MPI collection.
-New result and projected-intermediate filenames include `gsenum`, preventing
-reuse of the earlier analytic-zero intermediates. Metadata records
-`instantaneous_gse_evaluation` as `conditional density matrices`.
-
-A production run generates four figures; `plot_N_g_sweep.py --results ...`
-generates those four comparisons across N/g plus the original temporal-versus-
-fixed-target parametric plot. Numerical identity checks use linear vertical
-axes with automatic upper limits, showing roundoff residuals and any larger
-discrepancy. No fixed +/-0.01 range or assumed-exact-zero annotation is imposed.
-Per-realization projected timings include constructing both instantaneous
-targets and evaluating their numerical distances.
+A production run generates three figures. `plot_N_g_sweep.py --results ...`
+generates those three across N/g plus the original temporal-versus-fixed-target
+parametric figure. The single-Scrooge k=1 sweep panel has a linear vertical
+axis with an automatic upper limit, so a nonzero numerical error is visible.
+Other moment orders of this comparison can be physically nonzero and sampled.

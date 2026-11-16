@@ -1,4 +1,4 @@
-"""Independent checks of the two instantaneous Scrooge targets."""
+"""Independent checks of the instantaneous single Scrooge target."""
 import unittest
 from unittest import mock
 import numpy as np
@@ -24,23 +24,6 @@ class InstantaneousTests(unittest.TestCase):
         for k in (2,3):
             assert_allclose(actual[f'k{k}'],2/n*tensor_reference(states,k)[0],atol=1e-13)
 
-    def test_pure_full_generalized_target_is_projected_moment(self):
-        rng = np.random.default_rng(8)
-        states = rng.normal(size=(3,5,4))+1j*rng.normal(size=(3,5,4))
-        states /= np.linalg.norm(states.reshape(3,-1),axis=1)[:,None,None]
-        states[:,0] = 0  # zero-probability outcome is also supported
-        states /= np.linalg.norm(states.reshape(3,-1),axis=1)[:,None,None]
-        blocks = states[..., :,None]*states[...,None,:].conj()
-        targets = pf.scrooge_moments(blocks,11,[1,2,3],np.random.default_rng(9),symmetric=False)
-        for chunk in (1,3,32):
-            # The target must not reuse the projected-moment implementation.
-            with mock.patch.object(pf,'projected_moment',side_effect=AssertionError('shared calculation')):
-                pure_gse = pf.generalized_scrooge_pure(states,[1,2,3],symmetric=False,bath_chunk=chunk)
-            for k in (1,2,3):
-                expected = tensor_reference(states,k)
-                assert_allclose(targets[f'k{k}'].sum(axis=1),expected,atol=1e-13)
-                assert_allclose(pure_gse[f'k{k}'],expected,atol=1e-13)
-
     def test_bell_state_single_target_has_parity_obstruction(self):
         states = np.eye(2,dtype=complex)/np.sqrt(2)
         projected = pf.projected_moment(states,2)
@@ -64,29 +47,21 @@ class InstantaneousTests(unittest.TestCase):
         for key in outputs[0]:
             assert_allclose(outputs[0][key],outputs[1][key],atol=1e-13)
         assert_allclose(outputs[0]['single_scr_2norm'][:,0],0,atol=1e-13)
-        assert_allclose(outputs[0]['instantaneous_gse_2norm'],0,atol=1e-13)
+        self.assertEqual(set(outputs[0]),{'overlaps','2norm','single_scr_2norm'})
         assert_allclose(outputs[0]['single_scr_2norm'][0],0,atol=1e-13)
 
     def test_instantaneous_comparison_exposes_target_discrepancies(self):
-        original_gse = pf.generalized_scrooge_pure
         original_single = pf.scrooge_moments
-        def perturb_gse(*args,**kwargs):
-            target = original_gse(*args,**kwargs)
-            for matrix in target.values():
-                matrix[...,0,0] += .125
-            return target
         def perturb_single(*args,**kwargs):
             target = original_single(*args,**kwargs)
             target['k1'][...,0,0] += .25
             return target
         fixed = {'k1':np.zeros((2,2)), 'k2':np.zeros((3,3))}
-        with mock.patch.object(pf,'generalized_scrooge_pure',side_effect=perturb_gse), \
-             mock.patch.object(pf,'scrooge_moments',side_effect=perturb_single):
+        with mock.patch.object(pf,'scrooge_moments',side_effect=perturb_single):
             actual = pf.time_evolved_overlaps_and_ps_2norm.__wrapped__(
                 np.array([0.,1.]),np.eye(2),np.array([1.,0.]),np.array([0.,.3]),
                 [1,2],2,fixed,symmetric=True,instantaneous=True,n_scr=3,
                 rng=np.random.default_rng(100))
-        assert_allclose(actual['instantaneous_gse_2norm'],.125,atol=1e-14)
         assert_allclose(actual['single_scr_2norm'][:,0],.25,atol=1e-14)
 
     def test_invalid_density_matrix(self):

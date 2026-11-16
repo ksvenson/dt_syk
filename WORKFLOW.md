@@ -319,19 +319,20 @@ See PARAMETERS.md for the precise definitions, all controls and defaults, storag
 estimates, and examples. `thermalization.py` documents the calculations.
 
 
-## Instantaneous Scrooge comparisons
+## Instantaneous single Scrooge comparison
 
-The evolved states are also compared with a single Scrooge ensemble of
-rho_A(t), computed from that same state's reduced density matrix, and with
-the generalized Scrooge ensemble of the full pure rho(t). The latter equals
-the projected ensemble mathematically in the same bath basis. Both moments
-are computed separately: the generalized target uses conditional density
-matrices and the projected ensemble uses conditional kets. Their numerical
-residual is retained, averaged, collected across MPI ranks and plotted.
-The single-Scrooge comparison also retains its computed first-moment residual,
-although its first moments agree mathematically. It can differ at
-higher orders, including due to parity constraints. All projected comparisons
-use the same sampled times and running average of per-state distances.
+There are three distances in the driver: temporal versus RP, projected versus
+fixed generalized Scrooge G_k[sigma], and projected versus single Scrooge
+S_k[rho_A(t)]. The instantaneous input rho_A(t)=Tr_B|psi(t)><psi(t)| is the
+reduced state on A at the same sampled time as the projected moment. Its first
+moment agrees mathematically with the projected first moment, but their
+numerical difference is retained. Higher orders can differ, including due to
+parity constraints. Both projected comparisons use the same sampled times
+and running averages of per-state distances.
 
-INSTANTANEOUS_SCROOGE.md gives the full construction, support-restricted Haar
+The former fourth comparison with generalized Scrooge of the full pure
+rho_AB(t) is no longer computed, saved, or plotted. It was an all-order identity,
+separate from the desired single-Scrooge first-moment check.
+
+INSTANTANEOUS_SCROOGE.md gives the construction, support-restricted Haar
 integration, analytic rank-one shortcuts, saved arrays and independent tests.
