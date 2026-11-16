@@ -1,14 +1,15 @@
-# The three distance comparisons
+# The four distance curves
 
-The production driver computes exactly these three Hilbert-Schmidt/Frobenius
-distances. The projected comparisons share the same evolved states and bath
+The production driver computes these four Hilbert-Schmidt/Frobenius
+distance curves. The projected comparisons share the same evolved states and bath
 measurement basis; no extra diagonalization or state evolution is needed.
 
 | Comparison | Target | Saved key |
 |---|---|---|
 | Temporal versus random phase | Adapted energy-block RP moments | `temp_rp_2norm` |
 | Projected versus generalized Scrooge | Fixed energy-dephased full input sigma | `proj_scr_2norm` |
-| Projected versus single Scrooge | Instantaneous reduced input rho_A(t) | `proj_single_scr_2norm` |
+| Projected versus single Scrooge, time averaged | Instantaneous reduced input rho_A(t) | `proj_single_scr_2norm` |
+| Projected versus single Scrooge, without time averaging | Same target and same per-state distances | `proj_single_scr_instant_2norm` |
 
 Here rho_AB(t)=|psi(t)><psi(t)| is the full-system state and
 rho_A(t)=Tr_B rho_AB(t) is the reduced state on A. The single Scrooge ensemble
@@ -125,8 +126,8 @@ the same stratified running average, or explicit grid averaging if selected.
 The single Scrooge input remains rho_A(t) at the sampled time; it is never
 replaced by the reduced time-averaged state.
 
-The three saved distance arrays have shape (realizations,times,k), and each
-has its own threshold-time array. They are collected across MPI ranks and
+The four saved distance arrays have shape (realizations,times,k), and the time-averaged curves
+have threshold-time arrays. They are collected across MPI ranks and
 saved with NPZ compression. No first-moment single-Scrooge distance is replaced
 with zero. Tests perturb that target to verify that a discrepancy survives
 numerical comparison, time averaging, MPI collection, saving, and plotting.
@@ -137,8 +138,16 @@ column. Metadata identifies `single_scrooge_evaluation` as
 `numerical moment difference`. Existing archives may contain an extra fourth
 array; the sweep plot reads only the three comparisons listed above.
 
-A production run generates three figures. `plot_N_g_sweep.py --results ...`
-generates those three across N/g plus the original temporal-versus-fixed-target
+The unaveraged curve reuses the per-state single-Scrooge distances, before
+any cumulative averaging; it requires no new evolution or Scrooge samples.
+`projected_sample_times` stores its actual times with shape (realizations,times).
+At reporting index j this is the last sampled state in the window, not
+necessarily the endpoint tau_j. Disorder averages remain allowed: plots use
+the mean sampled time in each interval for their horizontal coordinate and
+show the disorder-mean distance, without averaging over previous intervals.
+
+A production run generates four figures. `plot_N_g_sweep.py --results ...`
+generates those four across N/g plus the original temporal-versus-fixed-target
 parametric figure. The single-Scrooge k=1 sweep panel has a linear vertical
 axis with an automatic upper limit, so a nonzero numerical error is visible.
 Other moment orders of this comparison can be physically nonzero and sampled.

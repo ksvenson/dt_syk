@@ -321,9 +321,9 @@ estimates, and examples. `thermalization.py` documents the calculations.
 
 ## Instantaneous single Scrooge comparison
 
-There are three distances in the driver: temporal versus RP, projected versus
-fixed generalized Scrooge G_k[sigma], and projected versus single Scrooge
-S_k[rho_A(t)]. The instantaneous input rho_A(t)=Tr_B|psi(t)><psi(t)| is the
+There are four distance curves: temporal versus RP, projected versus
+fixed generalized Scrooge G_k[sigma], and both time-averaged and unaveraged
+projected versus single Scrooge S_k[rho_A(t)]. The instantaneous input rho_A(t)=Tr_B|psi(t)><psi(t)| is the
 reduced state on A at the same sampled time as the projected moment. Its first
 moment agrees mathematically with the projected first moment, but their
 numerical difference is retained. Higher orders can differ, including due to
@@ -336,3 +336,8 @@ separate from the desired single-Scrooge first-moment check.
 
 INSTANTANEOUS_SCROOGE.md gives the construction, support-restricted Haar
 integration, analytic rank-one shortcuts, saved arrays and independent tests.
+
+The unaveraged single-Scrooge curve reuses each computed per-state distance.
+It is saved as `proj_single_scr_instant_2norm`, with actual evaluation times
+in `projected_sample_times`. Stratified sample times differ from the reporting
+endpoints. Its plot averages over disorder only, not over earlier times.

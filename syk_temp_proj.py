@@ -125,7 +125,7 @@ def parse_args():
 
 
 def plot_results(times, temporal, projected, ks, path, title, gap_times=None, fraction=None,
-                 single=None):
+                 single=None, single_instant=None, sample_times=None):
     """Plot disorder-averaged temporal and projected distances.
 
     Parameters
@@ -153,8 +153,12 @@ def plot_results(times, temporal, projected, ks, path, title, gap_times=None, fr
         Optional running distances to single Scrooge(rho_A(t)), with the same
         shape as projected. Its k=1 column is a computed numerical residual,
         mathematically zero, and is plotted without replacing its values.
+    single_instant : array or None
+        Single-Scrooge distance at each sampled time, before time averaging.
+        Disorder averages may still be shown. sample_times gives the actual
+        sampled times with shape (realizations,times); otherwise use times.
 
-    Up to three PNG figures are saved under utilities.FIG_DIR. Shading is the standard
+    Up to four PNG figures are saved under utilities.FIG_DIR. Shading is the standard
     error across disorder realizations, with zero shading for a single
     realization. It is not a separate estimate of Scrooge or time-sampling
     uncertainty. This function does not recompute states or moments."""
@@ -166,20 +170,24 @@ def plot_results(times, temporal, projected, ks, path, title, gap_times=None, fr
     ]
     if single is not None:
         comparisons.append((single,r'$\mathbb{E}_{t}\,||M_k(t)-S_k[\rho_A(t)]||_2$','proj_single_scr_2norm'))
+    if single_instant is not None:
+        comparisons.append((single_instant,r'$||M_k(t)-S_k[\rho_A(t)]||_2$','proj_single_scr_instant_2norm'))
     for data, label, prefix in comparisons:
+        unaveraged = prefix == 'proj_single_scr_instant_2norm'
+        x = np.mean(sample_times,axis=0) if unaveraged and sample_times is not None else times
         mean = data.mean(axis=0)
         sem = data.std(axis=0, ddof=1)/np.sqrt(len(data)) if len(data) > 1 else np.zeros_like(mean)
         fig, ax = plt.subplots()
         for j, k in enumerate(ks):
-            ax.plot(times[1:], mean[1:, j], label=f'k={k}')
-            ax.fill_between(times[1:], np.maximum(mean[1:, j]-sem[1:, j], 0), mean[1:, j]+sem[1:, j], alpha=.3)
-        th.annotate_timescales(ax, times, mean, ks,
+            ax.plot(x[1:], mean[1:, j], label=f'k={k}')
+            ax.fill_between(x[1:], np.maximum(mean[1:, j]-sem[1:, j], 0), mean[1:, j]+sem[1:, j], alpha=.3)
+        th.annotate_timescales(ax, x, mean, ks,
                               gap_times=gap_times if prefix == 'temp_rp_2norm' else None,
                               fraction=fraction)
         # Linear scaling exposes zero and roundoff residuals without imposing
         # a fixed vertical range that could conceal a numerical discrepancy.
-        numerical_check = prefix == 'proj_single_scr_2norm'
-        ax.set(xlabel=r'$\tau$', ylabel=label, xscale='log',
+        numerical_check = prefix in ('proj_single_scr_2norm','proj_single_scr_instant_2norm')
+        ax.set(xlabel=r'$t$ (sampled)' if unaveraged else r'$\tau$', ylabel=label, xscale='log',
                yscale='linear' if numerical_check or not np.any(mean[1:] > 0) else 'log')
         if ax.get_yscale() == 'linear':
             ax.set_ylim(bottom=0)
@@ -190,7 +198,7 @@ def plot_results(times, temporal, projected, ks, path, title, gap_times=None, fr
 
 
 def main():
-    """Run temporal/RP and two projected-ensemble comparisons for each disorder realization.
+    """Run four distance curves, including the unaveraged single-Scrooge distance.
 
     In units with hbar=1, construct H=(1-g)H_SYK4+g H_SYK2 and diagonalize it in
     even parity by default. The initial state is |0>, so its energy-basis
@@ -279,6 +287,8 @@ def main():
     local_tr = np.empty((len(tasks), len(times), len(ks)))
     local_ps = np.empty_like(local_tr)
     local_single = np.empty_like(local_tr)
+    local_single_instant = np.empty_like(local_tr)
+    local_sample_times = np.empty((len(tasks),len(times)))
     local_gaps = np.full((len(tasks), len(ks)), np.nan)
     local_gap_times = np.full_like(local_gaps, np.nan)
     local_sampling_warnings = np.zeros(len(tasks), dtype=np.int64)
@@ -430,6 +440,10 @@ def main():
             # Explicitly retain the old discrete ensemble convention for comparison.
             local_ps[i] = np.cumsum(distances, axis=0)/np.arange(1, len(times)+1)[:, None]
         single_distances = sampled['single_scr_2norm']
+        # Reuse every per-state distance before the cumulative time average.
+        # In stratified mode its time is sample_times[j], not endpoint times[j].
+        local_single_instant[i] = single_distances
+        local_sample_times[i] = sample_times
         if args.projected_sampling == 'stratified':
             local_single[i,0] = single_distances[0]
             local_single[i,1:] = np.cumsum(single_distances[1:],axis=0)/np.arange(1,n_intervals+1)[:,None]
@@ -454,16 +468,23 @@ def main():
         if args.verbose:
             print(f'Rank {rank}, realization {r}: timings {timing["total_seconds"]:.1f}s total, '
                   f'{timing["projected_seconds"]:.1f}s projected', flush=True)
-    # 7. Collect all local MPI arrays on rank zero, beginning with the three
+    # 7. Collect all local MPI arrays on rank zero, beginning with the four
     # distance arrays. Ranks may own different numbers of realizations.
     counts = np.array([len(x) for x in task_alloc])*len(times)*len(ks)
     offsets = np.r_[0, np.cumsum(counts[:-1])]
     temporal = np.empty((args.realizations, len(times), len(ks))) if rank == 0 else None
     projected = np.empty_like(temporal) if rank == 0 else None
     single = np.empty_like(temporal) if rank == 0 else None
+    single_instant = np.empty_like(temporal) if rank == 0 else None
+    projected_sample_times = np.empty((args.realizations,len(times))) if rank == 0 else None
     comm.Gatherv(local_tr, [temporal, (counts, offsets)] if rank == 0 else None, root=0)
     comm.Gatherv(local_ps, [projected, (counts, offsets)] if rank == 0 else None, root=0)
     comm.Gatherv(local_single, [single, (counts, offsets)] if rank == 0 else None, root=0)
+    comm.Gatherv(local_single_instant, [single_instant, (counts, offsets)] if rank == 0 else None, root=0)
+    time_counts = np.array([len(x) for x in task_alloc])*len(times)
+    time_offsets = np.r_[0,np.cumsum(time_counts[:-1])]
+    comm.Gatherv(local_sample_times,
+        [projected_sample_times,(time_counts,time_offsets)] if rank == 0 else None,root=0)
 
     # Collect the smaller arrays of spectral references and sampling warnings.
     gap_counts = np.array([len(x) for x in task_alloc])*len(ks)
@@ -484,6 +505,8 @@ def main():
         order = np.argsort(np.concatenate(task_alloc))
         temporal, projected = temporal[order], projected[order]
         single = single[order]
+        single_instant = single_instant[order]
+        projected_sample_times = projected_sample_times[order]
         gaps, gap_times = gaps[order], gap_times[order]
         sampling_warnings = sampling_warnings[order]
         analysis_wall_seconds = perf_counter()-run_started
@@ -501,6 +524,8 @@ def main():
         np.savez_compressed(result_path, tau_series=times, k_series=ks,
                  temp_rp_2norm=temporal, proj_scr_2norm=projected,
                  proj_single_scr_2norm=single,
+                 proj_single_scr_instant_2norm=single_instant,
+                 projected_sample_times=projected_sample_times,
                  moment_min_gaps=gaps, moment_gap_times=gap_times,
                  sampling_bound_warnings=sampling_warnings,
                  analysis_wall_seconds=np.array(analysis_wall_seconds),
@@ -522,7 +547,8 @@ def main():
             plot_results(times, temporal, projected, ks, run_note,
                          f'SYK42 N={args.N}, g={args.g}, R={args.realizations}, parity={args.parity}',
                          gap_times=gap_times if args.gap_lines else None,
-                         fraction=args.thermalization_fraction, single=single)
+                         fraction=args.thermalization_fraction, single=single,
+                         single_instant=single_instant,sample_times=projected_sample_times)
 
 
 if __name__ == '__main__':

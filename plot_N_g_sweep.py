@@ -9,7 +9,7 @@ import thermalization as th
 
 
 def plot_archives(paths, gap_lines=False, fraction=None):
-    """Plot the three ensemble comparisons and the original parametric comparison.
+    """Plot the four distance curves and the original parametric comparison.
 
     paths is a nonempty list of production NPZ files, one per (N,g). Runs must
     agree in subsystem, moment orders, random seed, parity, projected-time
@@ -24,7 +24,7 @@ def plot_archives(paths, gap_lines=False, fraction=None):
     residual uses a linear vertical axis with automatic upper limits, so discrepancies remain
     visible instead of being hidden by an assumed exact-zero annotation.
 
-    Four figures are written under utilities.FIG_DIR. No states are recomputed.
+    Five figures are written under utilities.FIG_DIR. No states are recomputed.
     Incompatible archives or duplicate (N,g) configurations raise ValueError.
     """
     if not paths:
@@ -32,7 +32,8 @@ def plot_archives(paths, gap_lines=False, fraction=None):
     comparisons = [
         ('temp_rp_2norm',r'$||\rho_T^{(k)}-\rho_{RP}^{(k)}||_2$'),
         ('proj_scr_2norm',r'$\mathbb{E}_t||M_k(t)-G_k[\sigma]||_2$'),
-        ('proj_single_scr_2norm',r'$\mathbb{E}_t||M_k(t)-S_k[\rho_A(t)]||_2$')]
+        ('proj_single_scr_2norm',r'$\mathbb{E}_t||M_k(t)-S_k[\rho_A(t)]||_2$'),
+        ('proj_single_scr_instant_2norm',r'$||M_k(t)-S_k[\rho_A(t)]||_2$')]
     runs, seen, signature = [], set(), None
     for path in paths:
         with np.load(path,allow_pickle=False) as data:
@@ -50,24 +51,25 @@ def plot_archives(paths, gap_lines=False, fraction=None):
             signature = current
             runs.append((params,data['tau_series'],data['k_series'],
                          {key:data[key] for key,_ in comparisons},
-                         data['moment_gap_times']))
+                         data['moment_gap_times'],data['projected_sample_times']))
     gs = sorted({p['g'] for p,*_ in runs})
     ks = runs[0][2]
     parametric_index = len(comparisons)
     figures = [plt.subplots(len(ks),len(gs),squeeze=False,
                            figsize=ut.fig_size(len(gs),len(ks))) for _ in range(parametric_index+1)]
-    for params,times,orders,values,gaps in sorted(runs,key=lambda x:x[0]['N']):
+    for params,times,orders,values,gaps,sample_times in sorted(runs,key=lambda x:x[0]['N']):
         col = gs.index(params['g'])
         means = {key:array.mean(axis=0) for key,array in values.items()}
         for row,k in enumerate(orders):
             for index,(key,label) in enumerate(comparisons):
                 ax = figures[index][1][row,col]
+                x = sample_times.mean(axis=0) if key=='proj_single_scr_instant_2norm' else times
                 samples = values[key]
                 mean = means[key][:,row]
                 sem = samples.std(axis=0,ddof=1)[:,row]/np.sqrt(len(samples)) if len(samples)>1 else np.zeros_like(mean)
-                line, = ax.plot(times[1:],mean[1:],label=f'N={params["N"]}, R={len(samples)}')
-                ax.fill_between(times[1:],np.maximum(mean[1:]-sem[1:],0),mean[1:]+sem[1:],alpha=.2)
-                th.annotate_timescales(ax,times,mean[:,None],[k],
+                line, = ax.plot(x[1:],mean[1:],label=f'N={params["N"]}, R={len(samples)}')
+                ax.fill_between(x[1:],np.maximum(mean[1:]-sem[1:],0),mean[1:]+sem[1:],alpha=.2)
+                th.annotate_timescales(ax,x,mean[:,None],[k],
                     gap_times=gaps[:,row:row+1] if index==0 and (gap_lines or params.get('gap_lines',False)) else None,
                     fraction=fraction if fraction is not None else params.get('thermalization_fraction'),
                     label_prefix=f'N={params["N"]}: ',colors=[line.get_color()])
@@ -77,9 +79,9 @@ def plot_archives(paths, gap_lines=False, fraction=None):
         for row,k in enumerate(ks):
             for col,g in enumerate(gs):
                 ax = axes[row,col]
-                numerical_check = index==2 and k==1
+                numerical_check = index in (2,3) and k==1
                 ax.set(xscale='log',yscale='linear' if numerical_check else 'log',title=f'k={k}, g={g}',
-                       xlabel=comparisons[0][1] if index==parametric_index else r'$\tau$',
+                       xlabel=comparisons[0][1] if index==parametric_index else (r'$t$ (sampled)' if index==3 else r'$\tau$'),
                        ylabel=comparisons[1][1] if index==parametric_index else comparisons[index][1])
                 if numerical_check:
                     ax.set_ylim(bottom=0)

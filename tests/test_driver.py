@@ -74,8 +74,14 @@ class DriverTests(unittest.TestCase):
                     first = data['temp_rp_2norm'].copy()
                     single = data['proj_single_scr_2norm'].copy()
                     self.assertEqual({key for key in data.files if key.endswith('_2norm')},
-                                     {'temp_rp_2norm','proj_scr_2norm','proj_single_scr_2norm'})
+                                     {'temp_rp_2norm','proj_scr_2norm','proj_single_scr_2norm',
+                                      'proj_single_scr_instant_2norm'})
+                    instant = data['proj_single_scr_instant_2norm'].copy()
+                    sample_times = data['projected_sample_times'].copy()
                     self.assertEqual(single.shape,first.shape)
+                    assert_allclose(single[:,1:],np.cumsum(instant[:,1:],axis=1)/np.arange(1,5)[None,:,None])
+                    self.assertTrue(np.all(sample_times[:,1:] >= data['tau_series'][None,:-1]))
+                    self.assertTrue(np.all(sample_times[:,1:] < data['tau_series'][None,1:]))
                     assert_allclose(single[:,:,0],0,atol=1e-13)
                     self.assertEqual(data['moment_min_gaps'].shape, (2, 3))
                     self.assertTrue(np.isnan(data['moment_gap_times'][:, 2]).all())
@@ -113,8 +119,9 @@ class DriverTests(unittest.TestCase):
                 with mock.patch.object(ut, 'FIG_DIR', directory):
                     plotting.plot_archives([str(archive)], gap_lines=True, fraction=.5)
                     driver.plot_results(np.arange(5.), first, first, np.arange(1,4),
-                                        'test', 'test', fraction=.5,single=single)
-                self.assertEqual(len(list(Path(directory).glob('*.png'))), 7)
+                                        'test', 'test', fraction=.5,single=single,
+                                        single_instant=instant,sample_times=sample_times)
+                self.assertEqual(len(list(Path(directory).glob('*.png'))), 9)
                 # Reject mixing the old numerical-vector RP definition with
                 # the adapted definition, even for different N configurations.
                 with np.load(archive) as data:
