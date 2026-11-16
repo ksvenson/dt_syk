@@ -14,12 +14,38 @@ def MFIM(hx=0.9045, hz=0.8090, J=1, boundary='open'):
     L should be set with `dynamite.config.L`
 
     Default values come from  10.1103/PhysRevE.90.052105.
+    boundary='periodic' is an alias for dynamite's 'closed' convention.
     """
+    if boundary == 'periodic':
+        boundary = 'closed'
+    if boundary not in ('open','closed'):
+        raise ValueError('boundary must be open, closed or periodic')
     # separate field and interaction terms so that boundary conditions can be applied
     # properly.
     field = op.index_sum(hx * op.sigmax() + hz * op.sigmaz())
     interaction = op.index_sum(J * op.sigmaz(i=0) * op.sigmaz(i=1), boundary=boundary)
     return field + interaction
+
+
+@ut.cache('npy', 'MFIM_numpy_H')
+def MFIM_numpy(hx=0.9045, hz=0.8090, J=1, boundary='periodic', note=None):
+    """Dense matrix of the existing mixed-field Ising operator.
+
+    dynamite.config.L counts spin-1/2 sites. The new MFIM analysis explicitly
+    uses periodic boundaries, with the published chaotic parameters of
+    Kim, Ikeda and Huse, Phys. Rev. E 90, 052105 (2014), Eq. (7).
+    This conversion does not change signs, field strengths or Pauli conventions:
+    H=sum_i [J Z_i Z_(i+1)+hx X_i+hz Z_i]. MFIM's historical default remains
+    open; this wrapper defaults to the periodic model requested by the driver.
+    No SYK fermion-parity restriction is applied: X_i mixes Z-parity sectors.
+    """
+    if boundary not in ('open','closed','periodic'):
+        raise ValueError('boundary must be open, closed or periodic')
+    if not np.all(np.isfinite([hx,hz,J])):
+        raise ValueError('MFIM couplings must be finite')
+    # This Pauli Hamiltonian is real for real fields; use the real symmetric
+    # eigensolver rather than retaining an unnecessary complex zero-imaginary part.
+    return np.real_if_close(MFIM(hx=hx,hz=hz,J=J,boundary=boundary).to_numpy(sparse=False))
 
 
 def SYK(q, rng, J=1, subspace=None):

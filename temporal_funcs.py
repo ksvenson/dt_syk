@@ -384,62 +384,113 @@ def temporal_distance_continuous(evals, pops, k_series, tau_series,
     initial_state_eigenbasis, leaving one occupied ket per energy block.
     Its first-moment limit is then zero; higher energy-sum resonances remain
     possible. This function itself does not rotate or group the supplied basis."""
-    import random_phase as rp
-
-    times = np.asarray(tau_series, dtype=float)
-    ks = np.asarray(k_series, dtype=int)
-    evals = np.asarray(evals, dtype=float)
-    pops = np.asarray(pops, dtype=float)
-    if (times.ndim != 1 or len(times) < 2 or times[0] != 0
-            or not np.all(np.isfinite(times)) or np.any(np.diff(times) <= 0)):
+    times = np.asarray(tau_series,dtype=float)
+    if times.ndim != 1 or len(times) < 2 or times[0] != 0:
         raise ValueError('Output times must start at zero and increase')
-    spacing = times[1]
-    if not np.allclose(np.diff(times), spacing, rtol=1e-10, atol=1e-12):
-        raise ValueError('Output times must be uniformly spaced')
-    if not np.isfinite(dt) or dt <= 0 or chunk < 1 or np.any(ks < 1):
-        raise ValueError('dt, chunk and moment orders must be positive')
-    if (pops.shape != evals.shape or np.any(pops < 0)
-            or not np.isclose(pops.sum(), 1, atol=1e-10, rtol=0)):
-        raise ValueError('Populations must be nonnegative and normalized')
-    # Composite Simpson quadrature needs an even number of subdivisions.
-    subdivisions = max(2, 2*int(np.ceil(spacing/(2*dt))))
+    integrals = temporal_overlap_integrals(evals,pops,k_series,times,dt,chunk)
+    return temporal_distance_from_integrals(pops,k_series,times,**integrals)
+
+
+def temporal_overlap_integrals(evals, pops, k_series, time_edges, dt=.1, chunk=1024,
+                              reporting_spacing=None):
+    """Integrate return-probability powers separately on reporting intervals.
+
+    For f_k(u)=|sum_alpha p_alpha exp(-i E_alpha u)|**(2k), return the integrals
+    of f_k and u*f_k on every interval [time_edges[j],time_edges[j+1]]. Unlike
+    temporal_distance_continuous, the first edge may be positive. This permits
+    independent MPI ranks to integrate different contiguous time intervals.
+    Their interval integrals can be concatenated in chronological order before
+    constructing the global temporal moments, without repeating early times.
+
+    Energies and populations describe one normalized initial ket. Edges are
+    finite, nonnegative, increasing and uniformly spaced. Simpson quadrature
+    uses an even number of subdivisions per reporting interval, with actual
+    spacing no greater than dt. Only scalar overlaps are formed, in batches
+    limited by chunk; no evolved kets or moment matrices are stored.
+
+    Return integral_f and integral_uf arrays of shape (number_of_intervals,k),
+    plus scalar dt_effective. One edge represents an empty interval assignment
+    and returns empty arrays; its dt_effective is NaN and is not used to combine
+    intervals. No cumulative time average is performed by this function.
+    reporting_spacing may supply the common full-grid spacing in MPI runs,
+    avoiding rank-dependent rounding when subtracting two large time edges.
+    """
+    edges = np.asarray(time_edges,dtype=float)
+    ks = np.asarray(k_series,dtype=int)
+    energies,p = np.asarray(evals,float),np.asarray(pops,float)
+    if (edges.ndim != 1 or len(edges) < 1 or not np.all(np.isfinite(edges))
+            or edges[0] < 0 or np.any(np.diff(edges) <= 0)):
+        raise ValueError('Need finite nonnegative increasing time edges')
+    if (energies.ndim != 1 or p.shape != energies.shape or len(p)==0
+            or not np.all(np.isfinite(energies)) or not np.all(np.isfinite(p))
+            or np.any(p<0) or not np.isclose(p.sum(),1,atol=1e-10,rtol=0)
+            or ks.ndim != 1 or len(ks)==0 or np.any(ks<1)):
+        raise ValueError('Need finite energies, normalized populations and positive moment orders')
+    if not np.isfinite(dt) or dt <= 0 or chunk < 1:
+        raise ValueError('dt and chunk must be positive')
+    if len(edges)==1:
+        return {'integral_f':np.empty((0,len(ks))),
+                'integral_uf':np.empty((0,len(ks))),'dt_effective':np.array(np.nan)}
+    spacing = edges[1]-edges[0] if reporting_spacing is None else float(reporting_spacing)
+    if not np.allclose(np.diff(edges),spacing,rtol=1e-10,atol=1e-12):
+        raise ValueError('Time edges must be uniformly spaced')
+    subdivisions = max(2,2*int(np.ceil(spacing/(2*dt))))
     h = spacing/subdivisions
-    # The adapted eigenbasis contains one occupied ket per energy block.
-    # Omit only exact zeros, retaining every nonzero initial component.
-    active = pops > 0
-    evals, pops = evals[active], pops[active]
-    baseline = rp.rpe_square_2norm(pops, int(ks.max()))[ks-1]
-    squared = np.empty((len(times), len(ks)))
-    squared[0] = 1-baseline
+    active = p>0
+    energies,p = energies[active],p[active]
+    energies = energies-energies[0]
+    checkpoints_f = np.zeros((len(edges),len(ks)))
+    checkpoints_uf = np.zeros_like(checkpoints_f)
     integral_f = np.zeros(len(ks))
     integral_uf = np.zeros(len(ks))
-    previous_f = np.ones(len(ks))
-    energies = evals-evals[0]
-    n_steps = (len(times)-1)*subdivisions
-    # Work in pairs of intervals so every output time is a Simpson endpoint.
-    for start in range(1, n_steps+1, 2*max(1, chunk//2)):
-        indices = np.arange(start, min(start+2*max(1, chunk//2), n_steps+1))
-        u = indices*h
-        overlaps = np.exp(-1j*u[:, None]*energies) @ pops
-        f = np.abs(overlaps[:, None])**(2*ks)
-        mid_f, end_f = f[::2], f[1::2]
-        mid_u, end_u = u[::2, None], u[1::2, None]
-        left_f = np.concatenate((previous_f[None, :], end_f[:-1]), axis=0)
-        int_f = integral_f + np.cumsum(h/3*(left_f+4*mid_f+end_f), axis=0)
-        int_uf = integral_uf + np.cumsum(h/3*(
-            (end_u-2*h)*left_f+4*mid_u*mid_f+end_u*end_f), axis=0)
+    previous_f = abs(np.exp(-1j*edges[0]*energies)@p)**(2*ks)
+    n_steps = (len(edges)-1)*subdivisions
+    for start in range(1,n_steps+1,2*max(1,chunk//2)):
+        indices = np.arange(start,min(start+2*max(1,chunk//2),n_steps+1))
+        u = edges[0]+indices*h
+        overlaps = np.exp(-1j*u[:,None]*energies)@p
+        f = abs(overlaps[:,None])**(2*ks)
+        mid_f,end_f = f[::2],f[1::2]
+        mid_u,end_u = u[::2,None],u[1::2,None]
+        left_f = np.concatenate((previous_f[None,:],end_f[:-1]),axis=0)
+        int_f = integral_f+np.cumsum(h/3*(left_f+4*mid_f+end_f),axis=0)
+        int_uf = integral_uf+np.cumsum(h/3*((end_u-2*h)*left_f+
+                                                     4*mid_u*mid_f+end_u*end_f),axis=0)
         endpoints = indices[1::2]
-        output = endpoints % subdivisions == 0
-        t = end_u[output]
-        squared[endpoints[output]//subdivisions] = (
-            2*(int_f[output]/t-int_uf[output]/t**2)-baseline)
-        integral_f = int_f[-1]
-        integral_uf = int_uf[-1]
-        previous_f = end_f[-1]
+        output = endpoints%subdivisions==0
+        checkpoints_f[endpoints[output]//subdivisions] = int_f[output]
+        checkpoints_uf[endpoints[output]//subdivisions] = int_uf[output]
+        integral_f,integral_uf,previous_f = int_f[-1],int_uf[-1],end_f[-1]
+    return {'integral_f':np.diff(checkpoints_f,axis=0),
+            'integral_uf':np.diff(checkpoints_uf,axis=0),'dt_effective':np.array(h)}
+
+
+def temporal_distance_from_integrals(pops, k_series, tau_series, integral_f,
+                                     integral_uf, dt_effective):
+    """Construct global temporal/RP distances from chronological interval integrals.
+
+    Concatenate interval integrals from MPI ranks first. Cumulative sums then
+    give I_k(T)=integral_0^T f_k(u)du and J_k(T)=integral_0^T u*f_k(u)du.
+    The temporal purity is 2*(I_k/T-J_k/T**2). Subtract the exact RP purity
+    and take a square root for the Frobenius distance. The initial t=0 moment
+    is handled separately. This averaging is global, not a mean of per-rank
+    distances or averages. Negative squared errors below -1e-10 raise an error.
+    """
+    import random_phase as rp
+    p,ks,times = np.asarray(pops,float),np.asarray(k_series,int),np.asarray(tau_series,float)
+    a,b = np.asarray(integral_f),np.asarray(integral_uf)
+    if (times.ndim!=1 or len(times)<2 or times[0]!=0 or np.any(np.diff(times)<=0)
+            or a.shape!=(len(times)-1,len(ks)) or b.shape!=a.shape):
+        raise ValueError('Need chronological interval integrals for times starting at zero')
+    baseline = rp.rpe_square_2norm(p[p>0],int(ks.max()))[ks-1]
+    squared = np.empty((len(times),len(ks)))
+    squared[0] = 1-baseline
+    t = times[1:,None]
+    squared[1:] = 2*(np.cumsum(a,axis=0)/t-np.cumsum(b,axis=0)/t**2)-baseline
     if squared.min() < -1e-10:
         raise ValueError('Quadrature produced a negative squared distance; decrease --dt')
-    return {'distance': np.sqrt(np.maximum(squared, 0)),
-            'distance_squared': squared, 'dt_effective': np.array(h)}
+    return {'distance':np.sqrt(np.maximum(squared,0)),
+            'distance_squared':squared,'dt_effective':np.array(dt_effective)}
 
 
 def initial_state_eigenbasis(evals, evecs, psi0, tolerance=None):

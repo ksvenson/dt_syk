@@ -341,3 +341,14 @@ The unaveraged single-Scrooge curve reuses each computed per-state distance.
 It is saved as `proj_single_scr_instant_2norm`, with actual evaluation times
 in `projected_sample_times`. Stratified sample times differ from the reporting
 endpoints. Its plot averages over disorder only, not over earlier times.
+
+
+## Reuse for MFIM
+
+`ensemble_analysis.py` now holds the shared argument controls, plotting,
+phase-preserving basis preparation, diagnostics, sample-time selection, and
+running-distance conventions. The SYK driver still distributes disorder
+realizations; the periodic `mfim_temp_proj.py` driver distributes temporal
+intervals and projected sample points for a single deterministic Hamiltonian.
+`temporal_overlap_integrals` exposes interval contributions so MFIM can collect
+them before computing global temporal moments. See MFIM_WORKFLOW.md for details.

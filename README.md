@@ -9,6 +9,11 @@ degenerate energy block has one occupied basis ket. Independent RP phases
 therefore act on energy-projected initial components, so the first temporal
 moment converges to the RP first moment even with energy degeneracies.
 
+The periodic mixed-field Ising driver is `mfim_temp_proj.py`, with spin counts
+`--L` and `--LA`, fixed chaotic couplings, and MPI time-interval partitioning.
+See [MFIM_WORKFLOW.md](MFIM_WORKFLOW.md) for the Hamiltonian, shared kernels,
+rank allocation, memory limits, and `submit_mfim_sweep.sh` cluster commands.
+
 See [INSTANTANEOUS_SCROOGE.md](INSTANTANEOUS_SCROOGE.md) for the four
 distance curves, the instantaneous single target, and numerical k=1 check.
 

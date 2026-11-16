@@ -15,6 +15,8 @@ import temporal_funcs as tf
 import projected_funcs as pf
 import utilities as ut
 import thermalization as th
+import ensemble_analysis as ea
+from ensemble_analysis import positive_float, positive_int, plot_results
 
 
 def validate_N(arg):
@@ -26,28 +28,6 @@ def validate_N(arg):
     if num <= 4 or num % 2:
         raise argparse.ArgumentTypeError('N must be an even number of Majoranas greater than 4')
     return num
-
-
-def positive_float(arg):
-    """Read a finite, strictly positive real-valued analysis parameter.
-
-    Used for time spacings and the maximum evolution time. Zero, negative
-    values, NaN, and infinity are rejected before the calculation starts."""
-    value = float(arg)
-    if not np.isfinite(value) or value <= 0:
-        raise argparse.ArgumentTypeError('Must be finite and positive')
-    return value
-
-
-def positive_int(arg):
-    """Read a strictly positive integer analysis parameter.
-
-    Used for sample counts, moment orders, and numbers of times handled
-    together. Invalid values are rejected before the calculation starts."""
-    value = int(arg)
-    if value < 1:
-        raise argparse.ArgumentTypeError('Must be positive')
-    return value
 
 
 def parse_args():
@@ -73,128 +53,17 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--N', type=validate_N, required=True, help='Even number of Majorana modes')
     parser.add_argument('--g', type=float, required=True, help='Dimensionless slider in (1-g)H4+g H2, between zero and one')
-    parser.add_argument('--dt', default='auto', help='Temporal quadrature max step: auto or a positive number')
-    parser.add_argument('--projected-dt', type=positive_float, default=1., help='Projected stratum width; independent of --dt')
-    parser.add_argument('--projected-sampling', choices=('stratified', 'grid'), default='stratified', help='stratified: one uniform random time per interval; grid: regular endpoints including zero')
-    parser.add_argument('--tmax', type=positive_float, default=1e5, help='Maximum evolution/reporting time, hbar=1')
+    ea.add_sampling_arguments(parser)
     parser.add_argument('--parity', choices=('even', 'full'), default='even', help='Eigenvector basis; even is valid for the vacuum initial state')
     parser.add_argument('--realizations', type=positive_int, default=128, help='Independent of MPI rank count')
-    parser.add_argument('--n-scr', type=positive_int, default=1000, help='Haar inputs for higher Scrooge moments; k=1 is exact')
-    parser.add_argument('--k-max', type=positive_int, default=3, help='Calculate moment orders 1 through this value')
     parser.add_argument('--NA', type=positive_int, default=4, help='Even subsystem Majorana count; DA=2**(NA/2)')
-    parser.add_argument('--chunk', type=positive_int, default=32, help='Projected time batch size')
-    parser.add_argument('--seed', type=int, default=628**3, help='Base seed for disorder, Haar states and time sampling')
-    parser.add_argument('--time-seed', type=int, default=0, help='Independent stratified sampling replicate')
-    parser.add_argument('--check-dt', action='store_true', help='Also compute dt/2 and record convergence error')
-    parser.add_argument('--cache-dir', default=ut.CACHE_DIR, help='Explicit intermediate/results directory; leaves utilities.CACHE_DIR unchanged')
-    parser.add_argument('--no-plots', action='store_true', help='Save results and diagnostics without rendering figures')
-    parser.add_argument('--verbose', action='store_true', help='Print per-realization diagnostics from all ranks; detailed data is always saved')
-    parser.add_argument('--cache-hamiltonian', action=argparse.BooleanOptionalAction, default=False,
-                        help='Read/write dense H files; unnecessary when an eigensystem is saved')
-    parser.add_argument('--cache-eigensystem', action=argparse.BooleanOptionalAction, default=True,
-                        help='Read/write eigenvalues and eigenvectors for repeat analysis')
-    parser.add_argument('--cache-projected', action=argparse.BooleanOptionalAction, default=False,
-                        help='Save per-state projected intermediate arrays in addition to final results')
-    parser.add_argument('--degeneracy-tolerance', type=float, default=None,
-                        help='Absolute tolerance for adapting degenerate eigenvectors to psi0; grouped energies use a common mean; default uses floating-point precision; 0 requires exact equality')
-    parser.add_argument('--gap-k-max', type=int, default=1,
-                        help='Exact spectral gap diagnostics through this order; 0 disables; capped by gap-max-sums')
-    parser.add_argument('--gap-max-sums', type=positive_int, default=5_000_000,
-                        help='Maximum number of k-sums to enumerate for each gap diagnostic')
-    parser.add_argument('--gap-lines', action='store_true',
-                        help='Show in-window median 2*pi/minimum-gap references on temporal plots')
-    parser.add_argument('--thermalization-fraction', type=positive_float, default=None,
-                        help='Mark sustained finite-window crossings below this fraction of the initial mean distance (0<f<1)')
     args = parser.parse_args()
     if args.NA % 2 or args.NA > args.N:
         parser.error('NA must be even and no larger than N')
     if not np.isfinite(args.g) or not 0 <= args.g <= 1 or args.seed < 0 or args.time_seed < 0:
         parser.error('g must lie between zero and one; seeds must be nonnegative')
-    if args.dt != 'auto':
-        try:
-            args.dt = positive_float(args.dt)
-        except (ValueError, argparse.ArgumentTypeError):
-            parser.error('--dt must be auto or a finite positive number')
-    if args.degeneracy_tolerance is not None and (not np.isfinite(args.degeneracy_tolerance) or args.degeneracy_tolerance < 0):
-        parser.error('--degeneracy-tolerance must be finite and nonnegative')
-    if args.gap_k_max < 0:
-        parser.error('--gap-k-max must be nonnegative')
-    if args.thermalization_fraction is not None and args.thermalization_fraction >= 1:
-        parser.error('--thermalization-fraction must be smaller than one')
+    ea.validate_sampling_arguments(parser,args)
     return args
-
-
-def plot_results(times, temporal, projected, ks, path, title, gap_times=None, fraction=None,
-                 single=None, single_instant=None, sample_times=None):
-    """Plot disorder-averaged temporal and projected distances.
-
-    Parameters
-    ----------
-    times : real array, shape (number_of_reporting_times,)
-        The saved endpoint times; time zero is omitted from logarithmic plots.
-    temporal, projected : real arrays, shape (realizations, times, moment_orders)
-        Temporal/RP distance and running mean of per-state projected/Scrooge
-        distance, respectively, as calculated by main.
-    ks : array of integers
-        Moment order corresponding to each final array index.
-    path : str
-        Filename label appended to each figure name; not a directory path.
-    title : str
-        Figure title describing the run.
-    gap_times : array, shape (realizations, moment_orders), or None
-        Resolved spectral reference times 2*pi/minimum k-sum gap. The temporal
-        plot can show their finite median; skipped/unresolved entries are NaN.
-        These reference lines are not predictions of the projected timescale.
-    fraction : float in (0,1), or None
-        If supplied, mark observed sustained crossings below this fraction
-        of the initial mean distance, separately for each curve.
-
-    single : array or None
-        Optional running distances to single Scrooge(rho_A(t)), with the same
-        shape as projected. Its k=1 column is a computed numerical residual,
-        mathematically zero, and is plotted without replacing its values.
-    single_instant : array or None
-        Single-Scrooge distance at each sampled time, before time averaging.
-        Disorder averages may still be shown. sample_times gives the actual
-        sampled times with shape (realizations,times); otherwise use times.
-
-    Up to four PNG figures are saved under utilities.FIG_DIR. Shading is the standard
-    error across disorder realizations, with zero shading for a single
-    realization. It is not a separate estimate of Scrooge or time-sampling
-    uncertainty. This function does not recompute states or moments."""
-    import matplotlib.pyplot as plt
-    os.makedirs(ut.FIG_DIR, exist_ok=True)
-    comparisons = [
-        (temporal, r'$||\rho_{Temp}^{(k)}-\rho_{RP}^{(k)}||_2$', 'temp_rp_2norm'),
-        (projected, r'$\mathbb{E}_{t}\,||M_k(t)-G_k[\sigma]||_2$', 'proj_scr_2norm'),
-    ]
-    if single is not None:
-        comparisons.append((single,r'$\mathbb{E}_{t}\,||M_k(t)-S_k[\rho_A(t)]||_2$','proj_single_scr_2norm'))
-    if single_instant is not None:
-        comparisons.append((single_instant,r'$||M_k(t)-S_k[\rho_A(t)]||_2$','proj_single_scr_instant_2norm'))
-    for data, label, prefix in comparisons:
-        unaveraged = prefix == 'proj_single_scr_instant_2norm'
-        x = np.mean(sample_times,axis=0) if unaveraged and sample_times is not None else times
-        mean = data.mean(axis=0)
-        sem = data.std(axis=0, ddof=1)/np.sqrt(len(data)) if len(data) > 1 else np.zeros_like(mean)
-        fig, ax = plt.subplots()
-        for j, k in enumerate(ks):
-            ax.plot(x[1:], mean[1:, j], label=f'k={k}')
-            ax.fill_between(x[1:], np.maximum(mean[1:, j]-sem[1:, j], 0), mean[1:, j]+sem[1:, j], alpha=.3)
-        th.annotate_timescales(ax, x, mean, ks,
-                              gap_times=gap_times if prefix == 'temp_rp_2norm' else None,
-                              fraction=fraction)
-        # Linear scaling exposes zero and roundoff residuals without imposing
-        # a fixed vertical range that could conceal a numerical discrepancy.
-        numerical_check = prefix in ('proj_single_scr_2norm','proj_single_scr_instant_2norm')
-        ax.set(xlabel=r'$t$ (sampled)' if unaveraged else r'$\tau$', ylabel=label, xscale='log',
-               yscale='linear' if numerical_check or not np.any(mean[1:] > 0) else 'log')
-        if ax.get_yscale() == 'linear':
-            ax.set_ylim(bottom=0)
-        ax.legend()
-        fig.suptitle(title)
-        fig.savefig(os.path.join(ut.FIG_DIR, prefix+'_'+path+'.png'), **ut.FIG_SAVE_OPTIONS)
-        plt.close(fig)
 
 
 def main():
@@ -324,39 +193,24 @@ def main():
         # Phases are retained in the complex basis kets: evecs@coefficients
         # reconstructs the original psi0. No dephasing is applied to that ket.
         # Every subsequent calculation uses this same adapted eigensystem.
-        adapted = tf.initial_state_eigenbasis(
-            eigs['evals'], eigs['evecs'], psi0, args.degeneracy_tolerance)
+        adapted = ea.prepare_eigensystem(eigs,psi0,ks,args)
         evals, evecs = adapted['evals'], adapted['evecs']
-        coefficients = adapted['coefficients']
-        del eigs
-        pops = np.abs(coefficients)**2
+        coefficients, pops = adapted['coefficients'], adapted['pops']
+        dt, diagnostics = adapted['dt'], adapted['diagnostics']
+        max_dt = diagnostics['nyquist_dt']
         active = pops > 0  # Omit exactly empty columns, with no further rotation.
+        del eigs, adapted
 
         # 3. Begin the continuous temporal-versus-RP moment comparison.
-        # First choose the integration spacing and record spectral/basis
-        # diagnostics. These diagnostics do not adapt the eigenbasis again.
-        max_dt = tf.spectral_sampling_diagnostics(evals, args.k_max, 1.)['nyquist_dt']
-        dt = min(.1, .5*max_dt) if args.dt == 'auto' else args.dt
-        diagnostics = tf.spectral_sampling_diagnostics(evals, args.k_max, dt)
-        diagnostics['warnings'] = []
-        diagnostics['initial_state_eigenbasis'] = adapted['basis_diagnostics']
-        diagnostics['initial_state_eigenbasis']['ket_error_bound_at_tmax'] = (
-            args.tmax*adapted['basis_diagnostics']['max_energy_shift'])
-        # Blocks have already been identified and assigned common energies.
-        # Regrouping with the original tolerance could merge neighboring blocks.
-        diagnostics['degeneracy'] = tf.degeneracy_diagnostics(evals, pops, ks, 0.)
-        diagnostics['degeneracy']['reference'] = adapted['basis_diagnostics']['reference']
-        del adapted
+        # Basis and sampling diagnostics are prepared above without dephasing psi0.
         if args.verbose:
             print(f'Rank {rank}, realization {r}: bandwidth={diagnostics["bandwidth"]:.6g}, '
                   f'Nyquist bound dt<{max_dt:.6g}, using dt<={dt:.6g}', flush=True)
-        if dt >= max_dt:
-            warning = ('Temporal grid exceeds the conservative moment-frequency bound; '
-                       'use --dt auto or verify with --check-dt')
-            diagnostics['warnings'].append(warning)
+        if diagnostics['warnings']:
             local_sampling_warnings[i] = 1
             if args.verbose:
-                print(f'WARNING: rank {rank}, realization {r}: {warning}', flush=True)
+                for warning in diagnostics['warnings']:
+                    print(f'WARNING: rank {rank}, realization {r}: {warning}',flush=True)
 
         # Compute the temporal moment errors from scalar return amplitudes;
         # temporal_distance_continuous also computes the exact RP purities.
@@ -364,16 +218,8 @@ def main():
         local_tr[i] = temporal['distance']
 
         # Record checks and short-time energy scales for the temporal result.
-        factors = np.array(diagnostics['degeneracy']['hs_partial_trace_factors'])
-        diagnostics['hs_partial_trace_max_violation'] = np.maximum(
-            local_tr[i, :, :1]*factors-local_tr[i], 0).max(axis=0).tolist()
+        ea.temporal_checks(evals,pops,ks,local_tr[i],diagnostics)
         diagnostics['dt_effective'] = float(temporal['dt_effective'])
-        centered_energies = evals-evals[0]
-        mean_energy = float(pops @ centered_energies)
-        energy_variance = float(pops @ (centered_energies-mean_energy)**2)
-        diagnostics['energy_standard_deviation'] = float(np.sqrt(energy_variance))
-        diagnostics['short_time_overlap_widths'] = [
-            float(1/np.sqrt(k*energy_variance)) if energy_variance > 0 else None for k in ks]
 
         # Optional integration-accuracy check: repeat only the scalar-overlap
         # calculation with half the step. No projected states are generated here.
@@ -417,11 +263,8 @@ def main():
         # 5. Begin the projected-ensemble computation. Choose a time per
         # interval (or grid endpoints), evolve psi0 using the adapted basis,
         # and compute each state's projected moments and target distances.
-        sample_times = times.copy()
-        if args.projected_sampling == 'stratified':
-            time_rng = np.random.default_rng(np.random.SeedSequence(
-                args.seed, spawn_key=(int(r), 2, args.time_seed)))
-            sample_times[1:] = times[:-1] + width*time_rng.random(n_intervals)
+        sample_times = ea.projected_times(times,args.projected_sampling,args.seed,
+                                         args.time_seed,int(r))
         sampled = pf.time_evolved_overlaps_and_ps_2norm(
             evals[active], evecs[:, active], coefficients[active], sample_times, ks, DA, target,
             chunk=args.chunk, note=f'{run_note}_r{r}', basis_indices=indices,
@@ -433,22 +276,13 @@ def main():
         # The same evolved states also supply the single Scrooge(rho_A(t))
         # comparison, including its numerically evaluated k=1 distance.
         distances = sampled['2norm']
-        if args.projected_sampling == 'stratified':
-            local_ps[i, 0] = distances[0]
-            local_ps[i, 1:] = np.cumsum(distances[1:], axis=0)/np.arange(1, n_intervals+1)[:, None]
-        else:
-            # Explicitly retain the old discrete ensemble convention for comparison.
-            local_ps[i] = np.cumsum(distances, axis=0)/np.arange(1, len(times)+1)[:, None]
+        local_ps[i] = ea.running_distance(distances,args.projected_sampling)
         single_distances = sampled['single_scr_2norm']
         # Reuse every per-state distance before the cumulative time average.
         # In stratified mode its time is sample_times[j], not endpoint times[j].
         local_single_instant[i] = single_distances
         local_sample_times[i] = sample_times
-        if args.projected_sampling == 'stratified':
-            local_single[i,0] = single_distances[0]
-            local_single[i,1:] = np.cumsum(single_distances[1:],axis=0)/np.arange(1,n_intervals+1)[:,None]
-        else:
-            local_single[i] = np.cumsum(single_distances,axis=0)/np.arange(1,len(times)+1)[:,None]
+        local_single[i] = ea.running_distance(single_distances,args.projected_sampling)
         diagnostics['instantaneous_targets'] = {
             'single_scrooge': 'rho_A(t), analytic k=1 and rank-one inputs; independent Haar samples otherwise',
             'n_scr_per_mixed_state': args.n_scr,
@@ -512,14 +346,8 @@ def main():
         analysis_wall_seconds = perf_counter()-run_started
         result_path = os.path.join(cache_dir, 'results_'+run_note+'.npz')
 
-        # Extract any requested threshold-crossing times from disorder means.
         def observed_times(data):
-            """Threshold endpoints for disorder-mean curves; NaN denotes no crossing."""
-            if args.thermalization_fraction is None:
-                return np.full(len(ks), np.nan)
-            mean = data.mean(axis=0)
-            return np.array([np.nan if (t := th.threshold_time(times, mean[:, j],
-                args.thermalization_fraction)) is None else t for j in range(len(ks))])
+            return ea.observed_times(times,data,ks,args.thermalization_fraction)
 
         np.savez_compressed(result_path, tau_series=times, k_series=ks,
                  temp_rp_2norm=temporal, proj_scr_2norm=projected,

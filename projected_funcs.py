@@ -329,7 +329,7 @@ def conditional_covariances(evecs, pops, DA, basis_indices=None,
 def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis,
         tau_series, k_series, DA, cond_scr_moment, chunk=32, verbose=False,
         note=None, basis_indices=None, full_dimension=None, symmetric=False,
-        instantaneous=False, n_scr=1000, rng=None):
+        instantaneous=False, n_scr=1000, rng=None, sample_seed=None, sample_indices=None):
     """Compare each evolved state's projected ensemble with a fixed target.
 
     For each supplied time t, form |psi(t)>=sum_alpha c_alpha exp(-i E_alpha t)
@@ -382,6 +382,12 @@ def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis,
     rng : numpy.random.Generator or None
         Required for instantaneous=True; use a stream independent of the fixed
         dephased target and sampled times. k=1 is analytic for all targets.
+    sample_seed, sample_indices : integer and integer array, or None
+        Optional global-time-indexed Scrooge random streams. For sample j,
+        use SeedSequence(sample_seed,spawn_key=(3,sample_indices[j])). This
+        gives identical samples when MPI rank counts or time partitions change.
+        Without sample_seed, use the existing sequential rng stream. With a
+        sample_seed, sample_indices must identify the global times explicitly.
 
     Returns
     -------
@@ -405,8 +411,13 @@ def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis,
     the returned distances. Evolution and the bath-outcome sum are exact up
     to floating-point error; a sampled Scrooge target carries its own error."""
     D, indices, _ = _basis_map(evecs, DA, basis_indices, full_dimension)
-    if instantaneous and (rng is None or n_scr < 1):
+    if instantaneous and ((rng is None and sample_seed is None) or n_scr < 1):
         raise ValueError('Instantaneous targets require rng and positive n_scr')
+    if sample_seed is not None:
+        sample_indices = np.asarray(sample_indices)
+        if (sample_seed < 0 or sample_indices.shape != (len(tau_series),)
+                or not np.issubdtype(sample_indices.dtype,np.integer) or np.any(sample_indices<0)):
+            raise ValueError('Need a nonnegative seed and global integer sample indices')
     if chunk < 1:
         raise ValueError('chunk must be positive')
     ret = {'overlaps': np.empty(len(tau_series), dtype=np.complex128),
@@ -431,7 +442,13 @@ def time_evolved_overlaps_and_ps_2norm(evals, evecs, psi0_eng_basis,
         states = states.reshape(stop-start, -1, DA)
         if instantaneous:
             rho_A = states.swapaxes(-1,-2)@states.conj()
-            single_target = scrooge_moments(rho_A,n_scr,k_series,rng,symmetric=True)
+            if sample_seed is None:
+                single_target = scrooge_moments(rho_A,n_scr,k_series,rng,symmetric=True)
+            else:
+                targets = [scrooge_moments(matrix,n_scr,k_series,np.random.default_rng(
+                    np.random.SeedSequence(sample_seed,spawn_key=(3,int(index)))),symmetric=True)
+                    for matrix,index in zip(rho_A,sample_indices[start:stop])]
+                single_target = {f'k{k}':np.stack([item[f'k{k}'] for item in targets]) for k in k_series}
         for j, k in enumerate(k_series):
             moment = projected_moment(states, int(k), symmetric=True)
             target = cond_scr_moment[f'k{k}']

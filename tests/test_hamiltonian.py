@@ -64,6 +64,10 @@ class ReferenceTests(unittest.TestCase):
         for bad in (-.1,1.1,np.nan):
             with self.assertRaises(ValueError):
                 hf.SYK42(bad,np.random.default_rng(seed),subspace=sector)
+        from tests.test_mfim import reference_mfim
+        for boundary in ('periodic','closed','open'):
+            actual=hf.MFIM_numpy.__wrapped__(boundary=boundary)
+            assert_allclose(actual,reference_mfim(4,periodic=boundary!='open'),atol=1e-14)
 
 
 if __name__ == '__main__':

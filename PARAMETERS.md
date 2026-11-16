@@ -208,3 +208,10 @@ uncertainty. The three distance arrays have their complete
 (realizations,times,k) shape, are collected across MPI ranks and saved with NPZ
 compression. Filenames include `singlecheck` to distinguish the numerical
 single-Scrooge k=1 check from the former analytically filled zero column.
+
+
+The unaveraged fourth curve is `proj_single_scr_instant_2norm`, with actual
+sample times in `projected_sample_times`; no extra target is sampled for it.
+MFIM uses the same sampling controls through `ensemble_analysis.py`, with
+`--L`/`--LA` counting spins, periodic boundaries, fixed fields and no disorder
+realizations or g sweep. See MFIM_WORKFLOW.md for its CLI and scheduling scripts.
