@@ -17,18 +17,11 @@ L_VALUES=(8 9 10 11 12)
 # Command-line --nodes/--tasks/--time override the corresponding table columns.
 resources_for_L() {
     case "$1" in
-         3) echo "1 32 04:00:00" ;;
-         4) echo "1 32 04:00:00" ;;
-         5) echo "1 32 04:00:00" ;;
-         6) echo "1 32 04:00:00" ;;
-         7) echo "1 32 04:00:00" ;;
-         8) echo "1 32 04:00:00" ;;
-         9) echo "1 32 04:00:00" ;;
-        10) echo "1 32 04:00:00" ;;
-        11) echo "1 32 12:00:00" ;;
-        12) echo "1 32 12:00:00" ;;
-        13) echo "2 16 24:00:00" ;;
-        14) echo "2 16 24:00:00" ;;
+         8) echo "1 32 00:30:00" ;;
+         9) echo "1 32 00:30:00" ;;
+        10) echo "1 32 00:30:00" ;;
+        11) echo "1 32 00:30:00" ;;
+        12) echo "1 32 01:00:00" ;;
          *) return 1 ;;
     esac
 }

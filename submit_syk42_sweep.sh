@@ -16,7 +16,7 @@ QUEUE=normal
 JOBSCRIPT=syk_job.slurm
 MANIFEST=sweep_manifest.csv
 
-N_VALUES=(12 18 20 22 24)
+N_VALUES=(16 18 20 22 24)
 G_VALUES=(0 0.2 0.4 0.6 0.7 0.8 1)
 
 # Per-N resources: "<nodes> <tasks> <walltime>".
