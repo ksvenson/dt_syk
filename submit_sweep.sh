@@ -16,8 +16,8 @@ QUEUE=normal
 JOBSCRIPT=syk_job.slurm
 MANIFEST=sweep_manifest.csv
 
-N_VALUES=(18 20 22 24)
-G_VALUES=(0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9)
+N_VALUES=(12 18 20 22 24 26 28)
+G_VALUES=(0 0.3 0.7 1)
 
 # Per-N resources: "<nodes> <tasks> <walltime>".
 # The default is 128 realizations, independent of rank count. Keep <tasks>
@@ -26,13 +26,16 @@ G_VALUES=(0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9)
 # These times are for `log_tmax = 5`.
 resources_for_N() {
     case "$1" in
-        16) echo "1 128 00:15:00" ;;
-        17) echo "1 128 00:15:00" ;;
-        18) echo "1 128 00:15:00" ;;
-        19) echo "1 128 00:15:00" ;;
-        20) echo "1 128 00:15:00" ;;
-        22) echo "1 128 00:20:00" ;;
+        12) echo "1 128 00:30:00" ;;
+        16) echo "1 128 00:30:00" ;;
+        17) echo "1 128 00:30:00" ;;
+        18) echo "1 128 00:30:00" ;;
+        19) echo "1 128 00:30:00" ;;
+        20) echo "1 128 00:30:00" ;;
+        22) echo "1 128 00:30:00" ;;
         24) echo "1 128 01:00:00" ;;
+        26) echo "1 128 12:00:00" ;;
+        28) echo "1 128 12:00:00" ;;
         *)  return 1 ;;
     esac
 }
