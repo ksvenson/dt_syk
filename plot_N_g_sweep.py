@@ -49,7 +49,7 @@ def plot_archives(paths, gap_lines=False, fraction=None, expected_model=None):
             current = (model,)+tuple(params.get(k) for k in ('NA','LA','k_max','n_scr','seed','parity',
                 'projected_sampling','projected_dt','time_seed','tmax','hamiltonian_convention',
                 'rp_reference','energy_grouping','degeneracy_tolerance',
-                'single_scrooge_evaluation','hx','hz','J','boundary'))
+                'single_scrooge_evaluation','hx','hy','hz','J','boundary','measurement_basis'))
             if signature is not None and signature != current:
                 raise ValueError('Archives mix incompatible physical or sampling parameters')
             signature = current

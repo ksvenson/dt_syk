@@ -17,14 +17,18 @@ import projected_funcs as pf
 import utilities as ut
 
 
-def reference_mfim(L,hx=.9045,hz=.809,J=1.,periodic=True):
-    """Direct computational-basis diagonal energies and single-spin flips."""
+def reference_mfim(L,hx=.8090,hy=.9045,J=1.,periodic=True):
+    """Independent Z-basis matrix from single- and double-spin flips.
+
+    X flips a bit with amplitude 1. Y flips it with amplitude +i for an
+    input |0> and -i for |1>. Each XX bond flips the two adjacent bits.
+    """
     states = np.arange(2**L)
     z = 1-2*((states[:,None]>>np.arange(L))&1)
-    bonds = np.sum(z[:,:-1]*z[:,1:],axis=1)
-    if periodic:bonds += z[:,-1]*z[:,0]
-    H = np.diag(J*bonds+hz*z.sum(axis=1))
-    for i in range(L):H[states^(1<<i),states] += hx
+    H = np.zeros((2**L,2**L),complex)
+    for i in range(L):H[states^(1<<i),states] += hx+1j*hy*z[:,i]
+    for i in range(L if periodic else L-1):
+        H[states^(1<<i)^(1<<((i+1)%L)),states] += J
     return H
 
 
@@ -79,6 +83,34 @@ class ThreadWorld:
 
 
 class MFIMTests(unittest.TestCase):
+    def test_axis_rotation_and_zero_Z_diagonal(self):
+        X=np.array([[0.,1.],[1.,0.]])
+        Y=np.array([[0.,-1j],[1j,0.]])
+        Z=np.diag([1.,-1.]);identity=np.eye(2)
+        u=(identity-1j*(X+Y+Z))/2
+        def tensor(operators):
+            result=np.array([[1.]])
+            for operator in operators:result=np.kron(result,operator)
+            return result
+        for old,new in ((X,Y),(Y,Z),(Z,X)):
+            assert_allclose(u@old@u.conj().T,new,atol=1e-14)
+        for L in (3,4):
+            xs=[tensor([X if i==j else identity for j in reversed(range(L))]) for i in range(L)]
+            zs=[tensor([Z if i==j else identity for j in reversed(range(L))]) for i in range(L)]
+            rotation=tensor([u]*L)
+            for periodic in (False,True):
+                for hx,hy,J in ((.8090,.9045,1.),(.23,.47,-.7)):
+                    bonds=range(L) if periodic else range(L-1)
+                    # Before the rotation, the transverse field was hy and
+                    # the longitudinal field was hx in the original Z axes.
+                    previous=sum(J*zs[i]@zs[(i+1)%L] for i in bonds)
+                    previous+=sum(hy*xs[i]+hx*zs[i] for i in range(L))
+                    current=reference_mfim(L,hx,hy,J,periodic)
+                    assert_allclose(current,rotation@previous@rotation.conj().T,atol=1e-14)
+                    assert_allclose(np.linalg.eigvalsh(current),np.linalg.eigvalsh(previous),atol=1e-13)
+                    assert_allclose(current,current.conj().T,atol=1e-14)
+                    assert_allclose(np.diag(current),0,atol=1e-14)
+
     @unittest.skipUnless(importlib.util.find_spec('matplotlib'),'matplotlib not installed')
     def test_mfim_size_plots_have_spin_labels_and_no_g_sweep(self):
         import matplotlib
@@ -89,7 +121,9 @@ class MFIMTests(unittest.TestCase):
             for L in (4,5):
                 path=Path(directory)/f'L{L}.npz';paths.append(str(path))
                 metadata={'model':'MFIM','L':L,'LA':1,'k_max':1,'n_scr':10,
-                          'hx':.9045,'hz':.809,'J':1.,'boundary':'periodic'}
+                          'hx':.8090,'hy':.9045,'J':1.,'boundary':'periodic',
+                          'hamiltonian_convention':'J*sum XX+hx*sum X+hy*sum Y',
+                          'measurement_basis':'computational Z product basis on B'}
                 data=np.array([[[1.],[.3],[.1]]])
                 np.savez(path,metadata=np.array(json.dumps(metadata)),tau_series=np.arange(3.),
                     k_series=np.array([1]),temp_rp_2norm=data,proj_scr_2norm=data,
@@ -106,6 +140,13 @@ class MFIMTests(unittest.TestCase):
                 self.assertNotIn('g=',figures[0].axes[0].get_title())
                 assert_allclose(figures[3].axes[0].lines[0].get_xdata(),[.2,1.3])
             for figure in figures:plotting.plt.close(figure)
+            # Different Y fields must not be overlaid as one size sweep.
+            with np.load(paths[1]) as archive:changed=dict(archive)
+            metadata=json.loads(str(changed['metadata']));metadata['hy']=.2
+            changed['metadata']=np.array(json.dumps(metadata))
+            np.savez(paths[1],**changed)
+            with self.assertRaisesRegex(ValueError,'incompatible physical'):
+                plotting.plot_archives(paths,expected_model='MFIM')
 
     def test_factory_periodic_alias_and_dense_conversion(self):
         # Load the actual factory with a small symbolic Pauli stand-in, so the
@@ -122,8 +163,9 @@ class MFIMTests(unittest.TestCase):
                 return Operator([(c*d,sites|others)
                                  for c,sites in self.terms for d,others in other.terms])
             def to_numpy(self,sparse=False):
-                result=np.zeros((2**dm.config.L,)*2)
-                pauli={'X':np.array([[0.,1.],[1.,0.]]),'Z':np.diag([1.,-1.])}
+                result=np.zeros((2**dm.config.L,)*2,complex)
+                pauli={'X':np.array([[0.,1.],[1.,0.]]),
+                       'Y':np.array([[0.,-1j],[1j,0.]]),'Z':np.diag([1.,-1.])}
                 for coefficient,sites in self.terms:
                     tensor=np.array([[1.]])
                     for i in reversed(range(dm.config.L)):
@@ -131,6 +173,7 @@ class MFIMTests(unittest.TestCase):
                     result+=coefficient*tensor
                 return result
         operators.sigmax=lambda i=0:Operator([(1.,{i:'X'})])
+        operators.sigmay=lambda i=0:Operator([(1.,{i:'Y'})])
         operators.sigmaz=lambda i=0:Operator([(1.,{i:'Z'})])
         def index_sum(operator,boundary='open'):
             self.assertIn(boundary,('open','closed'));boundaries.append(boundary)
@@ -147,8 +190,13 @@ class MFIMTests(unittest.TestCase):
             factory=importlib.util.module_from_spec(spec);spec.loader.exec_module(factory)
             periodic=factory.MFIM_numpy.__wrapped__(boundary='periodic')
             opened=factory.MFIM().to_numpy()
+            customized=factory.MFIM_numpy.__wrapped__(hx=.23,hy=.47,J=-.7)
+            self.assertEqual(Path(factory.MFIM_numpy.cache_path()).name,'MFIM_XX_XY_numpy_H.npy')
         assert_allclose(periodic,reference_mfim(4),atol=1e-14)
         assert_allclose(opened,reference_mfim(4,periodic=False),atol=1e-14)
+        assert_allclose(customized,reference_mfim(4,.23,.47,-.7),atol=1e-14)
+        self.assertTrue(np.iscomplexobj(periodic))
+        self.assertGreater(np.max(abs(periodic.imag)),.9)
         self.assertIn('closed',boundaries)
         self.assertGreater(np.linalg.norm(periodic-opened),0)
 
@@ -183,11 +231,12 @@ class MFIMTests(unittest.TestCase):
         dm=types.ModuleType('dynamite');dm.config=types.SimpleNamespace(L=4)
         tools=types.ModuleType('dynamite.tools')
         factory=types.ModuleType('hamiltonian_factory');calls=[]
-        @ut.cache('npy','MFIM_numpy_H')
-        def hamiltonian(hx,hz,J,boundary,note=None):
+        @ut.cache('npy','MFIM_XX_XY_numpy_H')
+        def hamiltonian(hx,hy,J,boundary,note=None):
             self.assertEqual(boundary,'periodic')
+            self.assertEqual((hx,hy,J),(.8090,.9045,1.))
             calls.append(dm.config.L)
-            return reference_mfim(dm.config.L,hx,hz,J)
+            return reference_mfim(dm.config.L,hx,hy,J)
         factory.MFIM_numpy=hamiltonian
         patches={'dynamite':dm,'dynamite.tools':tools,'hamiltonian_factory':factory}
         with tempfile.TemporaryDirectory() as directory,mock.patch.dict(sys.modules,patches):
@@ -196,13 +245,20 @@ class MFIMTests(unittest.TestCase):
             driver=importlib.util.module_from_spec(spec);spec.loader.exec_module(driver)
             argv=['mfim_temp_proj.py','--L','4','--LA','1','--tmax','2','--n-scr','13',
                   '--dt','.02','--check-dt','--cache-dir',directory,'--no-plots','--gap-k-max','2']
+            # A valid old-axis cache must be ignored, even in the same directory.
+            np.savez(Path(directory)/'eigs_MFIM_L4_hx0.9045_hz0.809_J1.0_periodic_full.npz',
+                     evals=np.zeros(16),evecs=np.eye(16))
             snapshots=[]
             for sampling in ('stratified','grid'):
                 for ranks in (1,3,8):
                     world=ThreadWorld(ranks)
                     tools.MPI_COMM_WORLD=lambda:types.SimpleNamespace(tompi4py=lambda:world.local.comm)
-                    with mock.patch.object(sys,'argv',argv+['--projected-sampling',sampling]),mock.patch('builtins.print'):
+                    with mock.patch.object(sys,'argv',argv+['--projected-sampling',sampling]), \
+                         mock.patch('builtins.print'), \
+                         mock.patch.object(driver.ea,'prepare_eigensystem',wraps=driver.ea.prepare_eigensystem) as prepare:
                         results=world.run(driver.main)
+                    assert_allclose(prepare.call_args.args[1],np.eye(16,dtype=complex)[:,0],atol=0)
+                    self.assertIn('_XX_XY_hx0.809_hy0.9045_',Path(results[0]).name)
                     with np.load(results[0]) as data:
                         arrays={key:data[key].copy() for key in data.files if key.endswith('_2norm')}
                         self.assertEqual(set(arrays),{'temp_rp_2norm','proj_scr_2norm',
@@ -210,6 +266,12 @@ class MFIMTests(unittest.TestCase):
                         self.assertEqual(arrays['temp_rp_2norm'].shape,(1,3,3))
                         meta=json.loads(str(data['metadata']))
                         self.assertEqual(meta['model'],'MFIM');self.assertEqual(meta['boundary'],'periodic')
+                        self.assertEqual((meta['hx'],meta['hy'],meta['J']),(.8090,.9045,1.))
+                        self.assertNotIn('hz',meta)
+                        self.assertEqual(meta['hamiltonian_convention'],'J*sum XX+hx*sum X+hy*sum Y')
+                        self.assertEqual(meta['measurement_basis'],'computational Z product basis on B')
+                        self.assertEqual(meta['initial_state'],{'basis':'full computational Z basis',
+                            'basis_labels':[0],'amplitudes_real':[1.],'amplitudes_imag':[0.]})
                         self.assertNotIn('g',meta)
                         raw=arrays['proj_single_scr_instant_2norm'][0]
                         expected=(np.concatenate((raw[:1],np.cumsum(raw[1:],axis=0)/np.arange(1,3)[:,None]))

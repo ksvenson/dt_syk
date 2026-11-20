@@ -11,6 +11,8 @@ moment converges to the RP first moment even with energy degeneracies.
 
 The periodic mixed-field Ising driver is `mfim_temp_proj.py`, with spin counts
 `--L` and `--LA`, fixed chaotic couplings, and MPI time-interval partitioning.
+It uses XX interactions with J=1, an X field of 0.8090 and a Y field of 0.9045,
+while keeping the initial all-zero state and bath measurements in the Z basis.
 See [MFIM_WORKFLOW.md](MFIM_WORKFLOW.md) for the Hamiltonian, shared kernels,
 rank allocation, memory limits, and `submit_mfim_sweep.sh` cluster commands.
 

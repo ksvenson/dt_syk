@@ -15,8 +15,9 @@ import projected_funcs as pf
 import temporal_funcs as tf
 import thermalization as th
 
-# Kim, Ikeda and Huse, Phys. Rev. E 90, 052105 (2014), Eq. (7).
-HX, HZ, J = .9045, .8090, 1.
+# Kim, Ikeda and Huse, Phys. Rev. E 90, 052105 (2014), Eq. (7),
+# with spin axes rotated: old Z -> X, old X -> Y, old Y -> Z.
+HX, HY, J = .8090, .9045, 1.
 
 
 def parse_args():
@@ -25,7 +26,7 @@ def parse_args():
     L and LA count spin-1/2 sites, unlike the Majorana counts N and NA in SYK.
     Couplings and periodic boundaries are fixed, with no coupling sweep and no
     disorder realizations. Seed controls only time and Scrooge sampling. All MPI
-    ranks analyze the same initial computational vacuum and Hamiltonian.
+    ranks analyze the same initial Z-basis vacuum and Hamiltonian.
     """
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -104,8 +105,8 @@ def main():
     sample_times = ea.projected_times(times,args.projected_sampling,args.seed,args.time_seed)
     state_part = time_slice(len(times),size,rank)
     interval_part = time_slice(len(times)-1,size,rank)
-    h_note = f'MFIM_L{args.L}_hx{HX}_hz{HZ}_J{J}_periodic_full'
-    run_note = (f'MFIM_L{args.L}_LA{args.LA}_seed{args.seed}_T{args.tmax}_dt{args.dt}'
+    h_note = f'MFIM_L{args.L}_XX_XY_hx{HX}_hy{HY}_J{J}_periodic_full'
+    run_note = (f'MFIM_L{args.L}_XX_XY_hx{HX}_hy{HY}_J{J}_LA{args.LA}_seed{args.seed}_T{args.tmax}_dt{args.dt}'
                 f'_pdt{args.projected_dt}_ps{args.projected_sampling}_ts{args.time_seed}'
                 f'_scr{args.n_scr}_k{args.k_max}_tol{args.degeneracy_tolerance}'
                 f'_check{int(args.check_dt)}_gap{args.gap_k_max}_gcap{args.gap_max_sums}'
@@ -117,14 +118,14 @@ def main():
     if rank==0:
         try:
             print(f'MFIM L={args.L}, DA={DA}; {size} MPI ranks split time intervals; '
-                  f'J={J}, hx={HX}, hz={HZ}, periodic boundaries',flush=True)
+                  f'J={J}, hx={HX}, hy={HY}, XX interaction, periodic boundaries',flush=True)
             stage = perf_counter()
             eig_hit = args.cache_eigensystem and la.eig_system.cache_exists(note=h_note,cache_dir=args.cache_dir)
             if eig_hit:
                 h_seconds = 0.
                 eigs = la.eig_system(None,note=h_note,cache_dir=args.cache_dir,require_cache=True)
             else:
-                H = hf.MFIM_numpy(HX,HZ,J,boundary='periodic',note=h_note,
+                H = hf.MFIM_numpy(HX,HY,J,boundary='periodic',note=h_note,
                     cache_dir=args.cache_dir,cache_enabled=args.cache_hamiltonian)
                 h_seconds = perf_counter()-stage
                 eigs = la.eig_system(H,note=h_note,cache_dir=args.cache_dir,
@@ -133,6 +134,7 @@ def main():
             eig_seconds = perf_counter()-stage-h_seconds
 
             # 2. Rotate the eigenbasis once, keeping the coherent vacuum intact.
+            # Keep |0...0> in Z: the Hamiltonian rotation is not applied to psi0.
             psi0 = np.zeros(D,complex); psi0[0] = 1
             prepared = ea.prepare_eigensystem(eigs,psi0,ks,args)
             evals,pops = prepared['evals'],prepared['pops']
@@ -233,10 +235,11 @@ def main():
     projected_average = ea.running_distance(projected,args.projected_sampling)[None]
     single_average = ea.running_distance(single_raw,args.projected_sampling)[None]
     single_instant = single_raw[None]
-    initial_state = {'basis':'full computational basis','basis_labels':[0],
+    initial_state = {'basis':'full computational Z basis','basis_labels':[0],
                      'amplitudes_real':[1.],'amplitudes_imag':[0.]}
-    metadata = dict(vars(args),model='MFIM',hx=HX,hz=HZ,J=J,boundary='periodic',
-        parity='full',realizations=1,hamiltonian_convention='J*sum ZZ+hx*sum X+hz*sum Z',
+    metadata = dict(vars(args),model='MFIM',hx=HX,hy=HY,J=J,boundary='periodic',
+        parity='full',realizations=1,hamiltonian_convention='J*sum XX+hx*sum X+hy*sum Y',
+        measurement_basis='computational Z product basis on B',
         rp_reference='initial-state-adapted energy blocks',initial_state=initial_state,
         single_scrooge_evaluation='numerical moment difference',
         energy_grouping='mean energy within each numerically degenerate block',
@@ -267,7 +270,7 @@ def main():
         print('WARNING: temporal grid exceeds the sampling bound; see diagnostics.',flush=True)
     if not args.no_plots:
         ea.plot_results(times,temporal_values,projected_average,ks,run_note,
-            f'MFIM L={args.L}, periodic, hx={HX}, hz={HZ}, J={J}',
+            f'MFIM L={args.L}, XX interaction, periodic, hx={HX}, hy={HY}, J={J}',
             gap_times=references[None] if args.gap_lines else None,
             fraction=args.thermalization_fraction,single=single_average,
             single_instant=single_instant,sample_times=sample_times[None])

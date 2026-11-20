@@ -214,4 +214,7 @@ The unaveraged fourth curve is `proj_single_scr_instant_2norm`, with actual
 sample times in `projected_sample_times`; no extra target is sampled for it.
 MFIM uses the same sampling controls through `ensemble_analysis.py`, with
 `--L`/`--LA` counting spins, periodic boundaries, fixed fields and no disorder
-realizations or g sweep. See MFIM_WORKFLOW.md for its CLI and scheduling scripts.
+realizations or g sweep. Its Hamiltonian is sum_i [J X_i X_(i+1)+hx X_i+hy Y_i],
+with J=1, hx=0.8090 and hy=0.9045. The initial ket remains |0...0>_Z and B is
+measured in Z. The X/Y axis convention is recorded in metadata and in the
+`XX_XY` cache/result tags. See MFIM_WORKFLOW.md for the basis rotation, CLI and scheduling scripts.

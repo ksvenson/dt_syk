@@ -20,28 +20,56 @@ Here L counts spin-1/2 sites, LA counts subsystem sites, D=2^L and DA=2^LA.
 These are different from the Majorana counts N and NA in the SYK command line.
 In units with hbar=1, the driver fixes
 
-$$H=\sum_{i=0}^{L-1}\left[J Z_i Z_{(i+1)\bmod L}+h_x X_i+h_z Z_i\right],
-\qquad (J,h_x,h_z)=(1,0.9045,0.8090).$$
+$$H=\sum_{i=0}^{L-1}\left[J X_i X_{(i+1)\bmod L}+h_x X_i+h_y Y_i\right],
+\qquad (J,h_x,h_y)=(1,0.8090,0.9045).$$
 
-Kim, Ikeda and Huse use these parameters and periodic boundaries as their
-nonintegrable Ising example in Eq. (7), Sec. II B of
+Kim, Ikeda and Huse use the original spin-axis convention and periodic
+boundaries as their nonintegrable Ising example in Eq. (7), Sec. II B of
 [Phys. Rev. E 90, 052105 (2014)](https://doi.org/10.1103/PhysRevE.90.052105).
-The existing factory already had these default fields and signs. Its historical
-open-boundary default is preserved; the new driver explicitly requests periodic
-boundaries. `MFIM` now accepts `periodic` as an alias for Dynamite's
-[`closed` boundary convention](https://dynamite.readthedocs.io/en/stable/dynamite.operators.html#dynamite.operators.index_sum).
-`MFIM_numpy` converts that same operator to a dense matrix. For real fields the
-matrix is real symmetric, avoiding unnecessary complex eigensolver work.
-There is no coupling sweep or analog of the SYK slider g.
+The original convention was $J ZZ+0.9045 X+0.8090 Z$. The same rotation on every
+spin maps it to the Hamiltonian above:
 
-The initial ket is the computational vacuum |0...0>, matching the SYK driver,
-and is recorded explicitly in result metadata. The full spin Hilbert space is
-used: the X field flips spins and does not conserve the SYK Z-basis fermion
-parity. Translation and reflection symmetries of the periodic chain remain;
-chaotic couplings do not eliminate these symmetries. The existing degeneracy
-adaptation handles energy eigenspaces while retaining initial coherences. No
-claim is made that arbitrary initial states or all moment orders must converge
-to every Scrooge target; the vacuum need not represent infinite temperature.
+$$u=\frac{I-i(X+Y+Z)}{2},\qquad U=u^{\otimes L},\qquad
+uXu^\dagger=Y,\quad uYu^\dagger=Z,\quad uZu^\dagger=X.$$
+
+Consequently $H_{\mathrm{new}}=U H_{\mathrm{old}}U^\dagger$, so the spectrum
+and the Hamiltonian's chaotic or integrable character are unchanged. The X field
+is longitudinal relative to the XX interaction, while Y is transverse.
+The factory's historical open-boundary default is preserved; the driver
+requests periodic boundaries. `MFIM` accepts `periodic` as an alias for
+Dynamite's [`closed` boundary convention](https://dynamite.readthedocs.io/en/stable/dynamite.operators.html#dynamite.operators.index_sum).
+`MFIM_numpy(hx=0.8090, hy=0.9045, J=1)` converts that same operator to a dense
+matrix in the computational Z basis. The Y field makes this matrix complex
+Hermitian. The existing Hermitian eigensolver supports it; its imaginary
+entries and complex eigenvectors are retained. The old `hz` argument has been
+replaced by `hy`. There is no coupling sweep or analog of the SYK slider g.
+
+The initial ket remains the all-zero Z product state $|0\cdots0\rangle_Z$,
+matching the SYK driver. It is neither rotated by U nor replaced by a dephased
+density matrix. Result metadata records basis label 0 with amplitude 1.
+Measurement of B remains in the computational Z product basis, with no
+rotation before projection.
+
+Keeping these preparation and measurement choices fixed means the full
+experiment differs from the old one, despite the unitary equivalence of the
+Hamiltonians. In particular, the initial mean energy changes from
+$L(J+0.8090)$ in the old periodic chain to zero. Every Z product state has zero
+diagonal expectation of the new H. Likewise, every bath Z product state has
+zero expectation of the isolated bath Hamiltonian $H_B$, and the mean boundary
+interaction vanishes when B is projected onto any of these kets. Thus no
+measurement label carries a different diagonal mean bath energy. This is the
+intended energy-nonrevealing choice at the level of mean energy; it is not a
+proof that every conditional state is identical or that all higher-order
+distances must vanish. The analysis still computes the conditional generalized
+Scrooge target numerically.
+
+The full spin Hilbert space is used: the fields flip spins and do not conserve
+the SYK Z-basis fermion parity. Translation and reflection symmetries of the
+periodic chain remain; chaotic couplings do not eliminate these symmetries.
+The existing degeneracy adaptation handles energy eigenspaces while retaining
+initial coherences. No claim is made that arbitrary initial states or all
+moment orders must converge to every Scrooge target. Zero mean energy alone
+does not fix all conserved sector weights or the finite-size diagonal ensemble.
 
 A uses the LA least significant computational-basis spins, with full ket ordering
 |z>_B tensor |a>_A, exactly as in the SYK projection code. No symmetry-reduced row
@@ -56,11 +84,13 @@ kernels. SYK still assigns independent disorder realizations to ranks. MFIM has
 one deterministic Hamiltonian per size, so its ranks instead share time work:
 
 1. Rank zero constructs and diagonalizes H once, or loads the raw eigensystem.
-   The cache name includes L, fields, J, periodic boundaries and full space.
+   The cache name includes L, the `XX_XY` axis convention, fields, J, periodic
+   boundaries and full space. Old ZZ/X/Z eigensystems are not reused.
 2. Rank zero adapts the eigenbasis to the coherent initial ket once and builds
    the fixed generalized Scrooge target using those occupied eigenvectors.
 3. The occupied eigenvectors, energies, coefficients and target moments are
-   broadcast. Real eigenvectors stay real when applicable. Each rank holds its
+   broadcast. Complex eigenvector phases from the Y field are preserved. Each
+   rank holds its
    own copy; the eigensolver itself remains a rank-zero dense calculation.
 4. Ranks integrate disjoint contiguous reporting intervals. For
    f_k(u)=|<psi0|exp(-iHu)|psi0>|^(2k), they return interval integrals of f_k(u)
@@ -104,6 +134,12 @@ cache switches, `--gap-k-max`, `--gap-lines`, `--thermalization-fraction`,
 `--no-plots`, and `--verbose` are supported. Results and timing JSON use an
 MFIM_L... prefix, so they do not collide with SYK output. There is one timing
 JSON per MFIM run, including rank-by-rank state/interval counts and durations.
+Intermediate, result, timing and plot names include `XX_XY` and the X/Y fields,
+so old-axis files are not overwritten or loaded as the new calculation. The
+dense-H cache also has a separate `MFIM_XX_XY_numpy_H` base, even without a note.
+Metadata and plot titles report the XX interaction and the X/Y field strengths.
+The size-sweep plotter checks both fields and the measurement-basis metadata
+before combining archives.
 
 ```bash
 ./submit_mfim_sweep.sh --dry-run --L 8 10 12 -- --LA 2 --tmax 100 --n-scr 100
@@ -134,9 +170,10 @@ manifest is checked in Slurm accounting. Job ids remain column 4 in both
 manifests, including for jobs killed before writing their own timing file.
 Existing timing files and manifests are not removed.
 
-Dense exact diagonalization is still the size limit. A real full eigenvector
-matrix occupies at most 8*4^L bytes per rank (2 GiB at L=14), before workspaces,
-targets and temporary evolved states. Complex vectors require twice that.
+Dense exact diagonalization is still the size limit. The full complex eigenvector
+matrix occupies 16*4^L bytes per rank (4 GiB at L=14), before workspaces,
+targets and temporary evolved states. This is twice the storage of a real matrix
+in the previous ZZ/X/Z representation; diagonalization can also take longer.
 More ranks replicate those vectors; adding ranks is not always a memory win.
 For L>14 the submitter requires explicit nodes/tasks/time estimates. A separate
 spatial-symmetry basis would be a further optimization, not currently applied.
@@ -144,5 +181,7 @@ spatial-symmetry basis would be a further optimization, not currently applied.
 Tests compare serial, 3-rank and 8-rank simulations, including empty assignments,
 fixed sample streams, warm caches, and both grid/stratified averaging. They
 verify the wraparound bond against an independent spin-matrix construction and
-exercise job scripts with fake sbatch/ibrun/sacct commands. The real
+verify the on-site unitary equivalence, Hermiticity, zero Z-basis diagonal,
+complex Y-field amplitudes, unchanged Z-vacuum input and the new cache identities.
+They also exercise job scripts with fake sbatch/ibrun/sacct commands. The real
 Dynamite/PETSc/MPI backend still needs the supplied cluster pilot.
