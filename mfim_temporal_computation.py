@@ -32,11 +32,11 @@ if __name__ == '__main__':
     hist_cutoff = 0.1
 
     # MFIM Parameters
-    H_str = 'MFIM'
-    hx=(np.sqrt(5) + 5) / 8
-    hz=(np.sqrt(5) + 1) / 4
-    H = hf.MFIM(hx=hx, hz=hz)
-    base_note = f'L{dm.config.L}_{H_str}_hx{hx:.4f}_hz{hz:.4f}'
+    H_str = 'MFIM_XX_XY'
+    hx=(np.sqrt(5) + 1) / 4
+    hy=(np.sqrt(5) + 5) / 8
+    H = hf.MFIM(hx=hx, hy=hy)
+    base_note = f'L{dm.config.L}_{H_str}_hx{hx:.4f}_hy{hy:.4f}'
 
     # Computations
     evals = np.empty(2**dm.config.L)
@@ -86,7 +86,7 @@ if __name__ == '__main__':
     if rank == 0:
         p_str = '\n'.join((
             'Parameters:',
-            rf'Hamiltonian: {H_str}, $L={dm.config.L}$, $hx = {hx:.4f}$, $hz = {hz:.4f}$',
+            rf'Hamiltonian: {H_str}, $L={dm.config.L}$, $hx = {hx:.4f}$, $hy = {hy:.4f}$',
             rf'$|\psi_0\rangle$: {psi0_str}',
         ))
 

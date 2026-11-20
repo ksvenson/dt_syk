@@ -51,7 +51,9 @@ echo " started    : $(date -Is)"
 echo "=============================================================="
 
 SECONDS=0
-ibrun python3 syk_temp_proj.py --N "$N" --g "$G"
+# Optional analysis flags are forwarded unchanged, e.g. --dt 0.1 --check-dt.
+# Keep realizations independent of the allocation when testing rank counts.
+ibrun python3 syk_temp_proj.py --N "$N" --g "$G" "${@:3}"
 rc=$?
 elapsed=$SECONDS
 
@@ -70,3 +72,4 @@ echo " $TAG  tasks=$SLURM_NTASKS  elapsed=$hms  exit=$rc"
 echo "=============================================================="
 
 exit $rc
+

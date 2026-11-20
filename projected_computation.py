@@ -21,7 +21,7 @@ if __name__ == '__main__':
     # SYK Parameters
     N = 20   # total number of fermions
     NA = 2   # number of fermions in subsystem
-    g = 1    # coupling to 2-body interactions
+    g = .5   # dimensionless SYK4/SYK2 interpolation
     dr = 10  # dr stands for disorder realizations
 
     # RNG config
@@ -86,4 +86,5 @@ if __name__ == '__main__':
         ax[p].legend(**ut.LEGEND_OPTIONS)
     fig.suptitle(p_str, y=1.1)
     fig.savefig(os.path.join(ut.FIG_DIR, f'proj_norm_{exp_note(dr, f"{k_series[0]}-{k_series[-1]}")}.svg'), **ut.FIG_SAVE_OPTIONS)
+
 
